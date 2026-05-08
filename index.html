@@ -641,7 +641,11 @@ function calcularNominaEmpleado(emp, fechaIni, fechaFin) {
   const fechas = fechasEnRango(fechaIni, fechaFin);
   let asistencias = 0, faltas = 0, descansos = 0, festivos = 0, horasExtra = 0;
   fechas.forEach(f => {
-    if (f > hoy()) return;
+    // FIX: días futuros se procesan solo si tienen excepción manual (F, FJ, FE, I, D)
+    if (f > hoy()) {
+      const tieneExc = excepciones.find(x => x.empleadoId === emp.id && x.fecha === f);
+      if (!tieneExc) return;
+    }
     const estado = obtenerEstadoDia(emp.id, f);
     if (estado === '•') {
       asistencias++;
