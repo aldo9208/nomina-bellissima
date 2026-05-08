@@ -669,7 +669,7 @@ function calcularNominaEmpleado(emp, fechaIni, fechaFin) {
   });
   let sueldoDiario, sueldoBruto, descuentoFaltas;
   if (emp.tipo === 'semanal') {
-    sueldoDiario = emp.sueldo / 6; sueldoBruto = emp.sueldo; descuentoFaltas = sueldoDiario * faltas;
+    sueldoDiario = emp.sueldo / 7; sueldoBruto = emp.sueldo; descuentoFaltas = sueldoDiario * faltas;
   } else {
     const diasQuincena = fechas.length; sueldoDiario = emp.sueldo / diasQuincena; sueldoBruto = emp.sueldo; descuentoFaltas = sueldoDiario * faltas;
   }
