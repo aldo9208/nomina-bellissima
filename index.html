@@ -133,7 +133,7 @@
       <h3 style="margin-top:24px;">Descuentos / Bonos / Préstamos manuales</h3>
       <div class="empleado-form">
         <select id="evento-empleado"></select>
-        <select id="evento-tipo"><option value="descuento">Descuento</option><option value="bono">Bono</option><option value="prestamo">Préstamo</option><option value="vale">Vale</option></select>
+        <select id="evento-tipo"><option value="descuento">Descuento</option><option value="bono">Bono</option><option value="prestamo">Préstamo</option><option value="vale">Vale</option><option value="hora_extra">Hora extra (monto = horas)</option></select>
         <input type="number" id="evento-monto" placeholder="Monto">
         <input type="text" id="evento-desc" placeholder="Descripción (opcional)">
         <button class="btn full" onclick="agregarEvento()">Agregar evento</button>
@@ -673,13 +673,16 @@ function calcularNominaEmpleado(emp, fechaIni, fechaFin) {
   } else {
     const diasQuincena = fechas.length; sueldoDiario = emp.sueldo / diasQuincena; sueldoBruto = emp.sueldo; descuentoFaltas = sueldoDiario * faltas;
   }
-  const pagoExtra = horasExtra * TARIFA_HORA_EXTRA;
   const eventosEmp = eventos.filter(ev => ev.empleadoId === emp.id && ev.fecha >= fechaIni && ev.fecha <= fechaFin);
-  let descuentosManuales = 0, bonos = 0;
+  let descuentosManuales = 0, bonos = 0, horasExtraManuales = 0;
   eventosEmp.forEach(ev => {
     if (ev.tipo === 'descuento' || ev.tipo === 'prestamo' || ev.tipo === 'vale') descuentosManuales += ev.monto;
     if (ev.tipo === 'bono') bonos += ev.monto;
+    if (ev.tipo === 'hora_extra') horasExtraManuales += ev.monto;
   });
+  // FIX: sumar horas extra manuales (el monto del evento ES el número de horas)
+  horasExtra += horasExtraManuales;
+  const pagoExtra = horasExtra * TARIFA_HORA_EXTRA;
   let descuentoFijo = 0, conceptoFijo = '';
   if (emp.tipo === 'quincenal' && emp.descuentoFijo && emp.descuentoFijo.monto) {
     descuentoFijo = parseFloat(emp.descuentoFijo.monto); conceptoFijo = emp.descuentoFijo.concepto || 'Desc. fijo';
