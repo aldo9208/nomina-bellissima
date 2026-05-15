@@ -133,9 +133,10 @@
       <h3 style="margin-top:24px;">Descuentos / Bonos / Préstamos manuales</h3>
       <div class="empleado-form">
         <select id="evento-empleado"></select>
-        <select id="evento-tipo"><option value="descuento">Descuento</option><option value="bono">Bono</option><option value="prestamo">Préstamo</option><option value="vale">Vale</option><option value="hora_extra">Hora extra (monto = horas)</option></select>
+        <select id="evento-tipo" onchange="toggleFechaEvento()"><option value="descuento">Descuento</option><option value="bono">Bono</option><option value="prestamo">Préstamo</option><option value="vale">Vale</option><option value="hora_extra">Hora extra (monto = horas)</option></select>
         <input type="number" id="evento-monto" placeholder="Monto">
         <input type="text" id="evento-desc" placeholder="Descripción (opcional)">
+        <input type="date" id="evento-fecha-aplica" style="display:none;" title="Día al que aplican las horas extra">
         <button class="btn full" onclick="agregarEvento()">Agregar evento</button>
       </div>
       <div id="eventos-lista"></div>
@@ -250,7 +251,7 @@ const TURNOS = { matutino: { entrada: '09:00', salida: '17:00' }, vespertino: { 
 
 let empleados = [], registros = [], excepciones = [], eventos = [];
 let currentNip = '', currentEmpleadoId = null, empEditandoId = null;
-let usuario = null;
+let usuario = null; // {email, rol, sucursal}
 let modoChecador = false, sucursalChecador = null;
 
 function dbToEmp(row) {
@@ -265,6 +266,7 @@ function dbToEmp(row) {
 }
 
 function detectarModo() {
+  // Si la URL contiene /checador/[sucursal] activa modo checador
   const path = window.location.pathname.toLowerCase();
   const hash = window.location.hash.toLowerCase();
   for (const slug of Object.keys(SLUG_TO_SUCURSAL)) {
@@ -283,6 +285,7 @@ async function init() {
     iniciarChecador();
     return;
   }
+  // Modo normal: verificar sesión
   const { data: { session } } = await sb.auth.getSession();
   if (session) {
     await cargarUsuario(session.user);
@@ -327,6 +330,7 @@ async function mostrarApp() {
   document.getElementById('user-info').textContent = `${usuario.nombre} (${usuario.rol === 'admin' ? 'Admin' : usuario.sucursal})`;
   poblarSucursales();
   await loadAll();
+  // Si es encargada, fijar su sucursal
   if (usuario.rol === 'encargada' && usuario.sucursal) {
     document.getElementById('enc-sucursal').value = usuario.sucursal;
     document.getElementById('enc-sucursal').disabled = true;
@@ -358,6 +362,9 @@ async function loadAll() {
   }
 }
 
+// ============================================================
+// MODO CHECADOR (sin login)
+// ============================================================
 async function iniciarChecador() {
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('main-app').style.display = 'none';
@@ -366,7 +373,7 @@ async function iniciarChecador() {
   setInterval(actualizarFechaChecador, 1000);
   actualizarFechaChecador();
   await cargarEmpleadosChecador();
-  setInterval(cargarEmpleadosChecador, 30000);
+  setInterval(cargarEmpleadosChecador, 30000); // refrescar cada 30s
 }
 
 function actualizarFechaChecador() {
@@ -378,9 +385,11 @@ function actualizarFechaChecador() {
 }
 
 async function cargarEmpleadosChecador() {
+  // Llamamos a la función especial empleados_checador que es pública
   const { data, error } = await sb.rpc('empleados_checador', { suc: sucursalChecador });
   if (error) { console.error(error); return; }
   empleados = (data || []).map(dbToEmp);
+  // Cargar registros de hoy
   const fecha = hoy();
   const { data: regs } = await sb.from('registros').select('*').eq('fecha', fecha);
   registros = (regs || []).map(r => ({empleadoId: r.empleado_id, fecha: r.fecha, tipo: r.tipo, hora: r.hora}));
@@ -604,17 +613,28 @@ async function cambiarExcepcion(empId, fecha, tipo) {
 document.getElementById('enc-sucursal').addEventListener('change', renderEncargada);
 document.getElementById('enc-fecha').addEventListener('change', renderEncargada);
 
+function toggleFechaEvento() {
+  const tipo = document.getElementById('evento-tipo').value;
+  const fechaInp = document.getElementById('evento-fecha-aplica');
+  if (tipo === 'hora_extra') { fechaInp.style.display = ''; if (!fechaInp.value) fechaInp.value = hoy(); }
+  else { fechaInp.style.display = 'none'; fechaInp.value = ''; }
+}
+
 async function agregarEvento() {
   const empId = parseInt(document.getElementById('evento-empleado').value);
   const tipo = document.getElementById('evento-tipo').value;
   const monto = parseFloat(document.getElementById('evento-monto').value);
   const desc = document.getElementById('evento-desc').value;
   if (!monto) { showToast('Ingresa un monto', 'error'); return; }
-  const { data, error } = await sb.from('eventos').insert({ empleado_id: empId, fecha: hoy(), tipo, monto, descripcion: desc }).select().single();
+  // FIX: si es hora_extra y hay fecha-aplica, usar esa; si no, hoy()
+  const fechaAplica = document.getElementById('evento-fecha-aplica').value;
+  const fechaUsar = (tipo === 'hora_extra' && fechaAplica) ? fechaAplica : hoy();
+  const { data, error } = await sb.from('eventos').insert({ empleado_id: empId, fecha: fechaUsar, tipo, monto, descripcion: desc }).select().single();
   if (error) { showToast('Error: ' + error.message, 'error'); return; }
-  eventos.push({id: data.id, empleadoId: empId, fecha: hoy(), tipo, monto, descripcion: desc});
+  eventos.push({id: data.id, empleadoId: empId, fecha: fechaUsar, tipo, monto, descripcion: desc});
   document.getElementById('evento-monto').value = '';
   document.getElementById('evento-desc').value = '';
+  document.getElementById('evento-fecha-aplica').value = '';
   showToast('Evento agregado');
   renderEventos(document.getElementById('enc-sucursal').value);
 }
@@ -640,6 +660,9 @@ async function eliminarEvento(id) {
 function calcularNominaEmpleado(emp, fechaIni, fechaFin) {
   const fechas = fechasEnRango(fechaIni, fechaFin);
   let asistencias = 0, faltas = 0, descansos = 0, festivos = 0, horasExtra = 0;
+  // FIX: días con horas extra MANUALES (por fecha) — no calcular auto para esos días
+  const eventosEmp = eventos.filter(ev => ev.empleadoId === emp.id && ev.fecha >= fechaIni && ev.fecha <= fechaFin);
+  const diasConHEManual = new Set(eventosEmp.filter(ev => ev.tipo === 'hora_extra').map(ev => ev.fecha));
   fechas.forEach(f => {
     // FIX: días futuros se procesan solo si tienen excepción manual (F, FJ, FE, I, D)
     if (f > hoy()) {
@@ -649,7 +672,7 @@ function calcularNominaEmpleado(emp, fechaIni, fechaFin) {
     const estado = obtenerEstadoDia(emp.id, f);
     if (estado === '•') {
       asistencias++;
-      if (emp.tipo === 'semanal') {
+      if (emp.tipo === 'semanal' && !diasConHEManual.has(f)) {
         const salida = registros.find(r => r.empleadoId === emp.id && r.fecha === f && r.tipo === 'salida');
         if (salida) {
           const horario = obtenerHorarioDia(emp, f);
@@ -673,7 +696,6 @@ function calcularNominaEmpleado(emp, fechaIni, fechaFin) {
   } else {
     const diasQuincena = fechas.length; sueldoDiario = emp.sueldo / diasQuincena; sueldoBruto = emp.sueldo; descuentoFaltas = sueldoDiario * faltas;
   }
-  const eventosEmp = eventos.filter(ev => ev.empleadoId === emp.id && ev.fecha >= fechaIni && ev.fecha <= fechaFin);
   let descuentosManuales = 0, bonos = 0, horasExtraManuales = 0;
   eventosEmp.forEach(ev => {
     if (ev.tipo === 'descuento' || ev.tipo === 'prestamo' || ev.tipo === 'vale') descuentosManuales += ev.monto;
@@ -805,6 +827,7 @@ function abrirNuevoEmpleado() {
   document.getElementById('emp-descanso').value = 'dom';
   document.getElementById('emp-activo').value = 'true';
   document.getElementById('emp-forma-pago').value = 'banco';
+  // Si encargada, fijar su sucursal
   if (usuario.rol === 'encargada') { document.getElementById('emp-sucursal').value = usuario.sucursal; document.getElementById('emp-sucursal').disabled = true; }
   renderHorariosForm({}); toggleHorarios();
   document.getElementById('modal-empleado').classList.add('show');
@@ -875,6 +898,7 @@ async function guardarEmpleado() {
   showToast('Empleado guardado');
 }
 
+// Iniciar
 init();
 </script>
 </body>
