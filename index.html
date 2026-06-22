@@ -343,19 +343,38 @@ async function mostrarApp() {
   document.getElementById('header-sub').textContent = subText;
 }
 
+// FIX: paginar para evitar el límite de 1000 filas de Supabase
+async function fetchAllRows(tabla, orden) {
+  const PAGE_SIZE = 1000;
+  let todos = [];
+  let pagina = 0;
+  while (true) {
+    let q = sb.from(tabla).select('*').range(pagina * PAGE_SIZE, (pagina + 1) * PAGE_SIZE - 1);
+    if (orden) q = q.order(orden);
+    const { data, error } = await q;
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    todos = todos.concat(data);
+    if (data.length < PAGE_SIZE) break;
+    pagina++;
+    if (pagina > 50) break; // tope de seguridad: 50,000 registros
+  }
+  return todos;
+}
+
 async function loadAll() {
   try {
     const [emps, regs, exs, evs] = await Promise.all([
-      sb.from('empleados').select('*').order('id'),
-      sb.from('registros').select('*'),
-      sb.from('excepciones').select('*'),
-      sb.from('eventos').select('*')
+      fetchAllRows('empleados', 'id'),
+      fetchAllRows('registros'),
+      fetchAllRows('excepciones'),
+      fetchAllRows('eventos')
     ]);
-    if (emps.error) throw emps.error;
-    empleados = emps.data.map(dbToEmp);
-    registros = (regs.data || []).map(r => ({empleadoId: r.empleado_id, fecha: r.fecha, tipo: r.tipo, hora: r.hora, timestamp: r.timestamp}));
-    excepciones = (exs.data || []).map(x => ({empleadoId: x.empleado_id, fecha: x.fecha, tipo: x.tipo}));
-    eventos = (evs.data || []).map(e => ({id: e.id, empleadoId: e.empleado_id, fecha: e.fecha, tipo: e.tipo, monto: parseFloat(e.monto), descripcion: e.descripcion}));
+    empleados = emps.map(dbToEmp);
+    registros = regs.map(r => ({empleadoId: r.empleado_id, fecha: r.fecha, tipo: r.tipo, hora: r.hora, timestamp: r.timestamp}));
+    excepciones = exs.map(x => ({empleadoId: x.empleado_id, fecha: x.fecha, tipo: x.tipo}));
+    eventos = evs.map(e => ({id: e.id, empleadoId: e.empleado_id, fecha: e.fecha, tipo: e.tipo, monto: parseFloat(e.monto), descripcion: e.descripcion}));
+    console.log('loadAll cargó:', {empleados: empleados.length, registros: registros.length, excepciones: excepciones.length, eventos: eventos.length});
   } catch (e) {
     console.error('Error cargando:', e);
     showToast('Error de conexión: ' + (e.message || 'desconocido'), 'error');
@@ -660,6 +679,7 @@ async function eliminarEvento(id) {
 function calcularNominaEmpleado(emp, fechaIni, fechaFin) {
   const fechas = fechasEnRango(fechaIni, fechaFin);
   let asistencias = 0, faltas = 0, descansos = 0, festivos = 0, horasExtra = 0;
+  const desgloseHE = []; // [{fecha, horas, origen: 'auto'|'manual'}]
   // FIX: días con horas extra MANUALES (por fecha) — no calcular auto para esos días
   const eventosEmp = eventos.filter(ev => ev.empleadoId === emp.id && ev.fecha >= fechaIni && ev.fecha <= fechaFin);
   const diasConHEManual = new Set(eventosEmp.filter(ev => ev.tipo === 'hora_extra').map(ev => ev.fecha));
@@ -680,7 +700,13 @@ function calcularNominaEmpleado(emp, fechaIni, fechaFin) {
           const [hFin, mFin] = horario.salida.split(':').map(Number);
           const minutosSalida = hSal*60 + mSal;
           const minutosFin = hFin*60 + mFin;
-          if (minutosSalida > minutosFin) horasExtra += Math.floor((minutosSalida - minutosFin) / 60);
+          if (minutosSalida > minutosFin) {
+            const hAuto = Math.floor((minutosSalida - minutosFin) / 60);
+            if (hAuto > 0) {
+              horasExtra += hAuto;
+              desgloseHE.push({fecha: f, horas: hAuto, origen: 'auto'});
+            }
+          }
         }
       }
     }
@@ -700,7 +726,10 @@ function calcularNominaEmpleado(emp, fechaIni, fechaFin) {
   eventosEmp.forEach(ev => {
     if (ev.tipo === 'descuento' || ev.tipo === 'prestamo' || ev.tipo === 'vale') descuentosManuales += ev.monto;
     if (ev.tipo === 'bono') bonos += ev.monto;
-    if (ev.tipo === 'hora_extra') horasExtraManuales += ev.monto;
+    if (ev.tipo === 'hora_extra') {
+      horasExtraManuales += ev.monto;
+      desgloseHE.push({fecha: ev.fecha, horas: ev.monto, origen: 'manual'});
+    }
   });
   // FIX: sumar horas extra manuales (el monto del evento ES el número de horas)
   horasExtra += horasExtraManuales;
@@ -714,7 +743,7 @@ function calcularNominaEmpleado(emp, fechaIni, fechaFin) {
   const banco = Math.min(emp.banco || 0, neto);
   const cheque = Math.min(emp.cheque || 0, Math.max(0, neto - banco));
   const efvo = Math.max(0, neto - banco - cheque);
-  return { empleado: emp, asistencias, faltas, descansos, horasExtra, sueldoBruto, sueldoDiario, pagoExtra, bonos, descuentoFaltas, descuentosManuales, descuentoFijo, conceptoFijo, descuentosTotal, neto, banco, cheque, efvo };
+  return { empleado: emp, asistencias, faltas, descansos, horasExtra, desgloseHE, sueldoBruto, sueldoDiario, pagoExtra, bonos, descuentoFaltas, descuentosManuales, descuentoFijo, conceptoFijo, descuentosTotal, neto, banco, cheque, efvo };
 }
 
 function renderNomina() {
@@ -741,7 +770,17 @@ function renderNomina() {
       let badges = '';
       if (c.descuentoFijo > 0) badges += `<span class="badge infonavit">${c.conceptoFijo}</span>`;
       if (c.faltas > 0) badges += `<span class="badge falta">${c.faltas}F</span>`;
-      html += `<tr><td>${c.empleado.nombre}${badges}</td><td>${c.asistencias}</td><td>${c.faltas}</td><td>${c.horasExtra}h</td>
+      // Desglose horas extra: "3h (08/05) + 6h (10/05) = 9h"
+      let heDisplay = `${c.horasExtra}h`;
+      if (c.desgloseHE && c.desgloseHE.length > 0) {
+        const porDia = {};
+        c.desgloseHE.forEach(d => { porDia[d.fecha] = (porDia[d.fecha] || 0) + d.horas; });
+        const fechasOrdenadas = Object.keys(porDia).sort();
+        const partes = fechasOrdenadas.map(f => `${porDia[f]}h (${fechaCorta(f)})`);
+        if (partes.length === 1) heDisplay = partes[0];
+        else heDisplay = `<span style="font-size:0.75rem; line-height:1.3;">${partes.join(' + ')}<br><b>= ${c.horasExtra}h</b></span>`;
+      }
+      html += `<tr><td>${c.empleado.nombre}${badges}</td><td>${c.asistencias}</td><td>${c.faltas}</td><td>${heDisplay}</td>
         <td class="num">$${c.sueldoBruto.toFixed(2)}</td><td class="num">$${c.pagoExtra.toFixed(2)}</td><td class="num">$${c.bonos.toFixed(2)}</td>
         <td class="num">-$${c.descuentosTotal.toFixed(2)}</td><td class="num"><b>$${c.neto.toFixed(2)}</b></td>
         <td class="num">$${c.banco.toFixed(2)}</td><td class="num">$${c.cheque.toFixed(2)}</td><td class="num">$${c.efvo.toFixed(2)}</td></tr>`;
