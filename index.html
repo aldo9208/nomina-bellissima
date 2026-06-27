@@ -620,9 +620,10 @@ function obtenerEstadoDia(empId, fecha) {
   const exc = excepciones.find(x => x.empleadoId === empId && x.fecha === fecha);
   if (exc) return exc.tipo;
   const emp = empleados.find(e => e.id === empId);
-  if (emp && diaSemana(fecha) === emp.descanso) return 'D';
   const reg = registros.find(r => r.empleadoId === empId && r.fecha === fecha && r.tipo === 'entrada');
+  // FIX: si es día de descanso normal PERO marcó entrada, cuenta como asistencia (descanso trabajado)
   if (reg) return '•';
+  if (emp && diaSemana(fecha) === emp.descanso) return 'D';
   if (fecha > hoy()) return '';
   if (fecha === hoy()) return '';
   return 'F';
@@ -688,7 +689,7 @@ async function eliminarEvento(id) {
 
 function calcularNominaEmpleado(emp, fechaIni, fechaFin) {
   const fechas = fechasEnRango(fechaIni, fechaFin);
-  let asistencias = 0, faltas = 0, descansos = 0, festivos = 0, horasExtra = 0;
+  let asistencias = 0, faltas = 0, descansos = 0, festivos = 0, horasExtra = 0, descansosTrabajados = 0;
   const desgloseHE = []; // [{fecha, horas, origen: 'auto'|'manual'}]
   // FIX: días con horas extra MANUALES (por fecha) — no calcular auto para esos días
   const eventosEmp = eventos.filter(ev => ev.empleadoId === emp.id && ev.fecha >= fechaIni && ev.fecha <= fechaFin);
@@ -700,6 +701,9 @@ function calcularNominaEmpleado(emp, fechaIni, fechaFin) {
       if (!tieneExc) return;
     }
     const estado = obtenerEstadoDia(emp.id, f);
+    // FIX: día que normalmente sería descanso (por emp.descanso) pero se marcó asistencia → pago extra
+    const seriaDescansoNormal = diaSemana(f) === emp.descanso;
+    if (estado === '•' && seriaDescansoNormal) descansosTrabajados++;
     if (estado === '•') {
       asistencias++;
       if (emp.tipo === 'semanal' && !diasConHEManual.has(f)) {
@@ -748,12 +752,14 @@ function calcularNominaEmpleado(emp, fechaIni, fechaFin) {
   if (emp.tipo === 'quincenal' && emp.descuentoFijo && emp.descuentoFijo.monto) {
     descuentoFijo = parseFloat(emp.descuentoFijo.monto); conceptoFijo = emp.descuentoFijo.concepto || 'Desc. fijo';
   }
+  // FIX: pago por descansos trabajados (1 día normal por cada descanso trabajado)
+  const pagoDescansoTrabajado = descansosTrabajados * sueldoDiario;
   const descuentosTotal = descuentoFaltas + descuentosManuales + descuentoFijo;
-  const neto = sueldoBruto + pagoExtra + bonos - descuentosTotal;
+  const neto = sueldoBruto + pagoExtra + pagoDescansoTrabajado + bonos - descuentosTotal;
   const banco = Math.min(emp.banco || 0, neto);
   const cheque = Math.min(emp.cheque || 0, Math.max(0, neto - banco));
   const efvo = Math.max(0, neto - banco - cheque);
-  return { empleado: emp, asistencias, faltas, descansos, horasExtra, desgloseHE, sueldoBruto, sueldoDiario, pagoExtra, bonos, descuentoFaltas, descuentosManuales, descuentoFijo, conceptoFijo, descuentosTotal, neto, banco, cheque, efvo };
+  return { empleado: emp, asistencias, faltas, descansos, descansosTrabajados, pagoDescansoTrabajado, horasExtra, desgloseHE, sueldoBruto, sueldoDiario, pagoExtra, bonos, descuentoFaltas, descuentosManuales, descuentoFijo, conceptoFijo, descuentosTotal, neto, banco, cheque, efvo };
 }
 
 function renderNomina() {
@@ -774,7 +780,7 @@ function renderNomina() {
     const lista = porSucursal[suc];
     if (!lista.length) return;
     html += `<div class="sucursal-header">${suc} (${lista.length})</div>`;
-    html += '<div class="tabla-wrap"><table><thead><tr><th>Empleado</th><th>Asist.</th><th>Faltas</th><th>H.Ext</th><th class="num">Sueldo</th><th class="num">Extra</th><th class="num">Bono</th><th class="num">Desc.</th><th class="num">Neto</th><th class="num">Banco</th><th class="num">Cheque</th><th class="num">Efvo.</th></tr></thead><tbody>';
+    html += '<div class="tabla-wrap"><table><thead><tr><th>Empleado</th><th>Asist.</th><th>Faltas</th><th>H.Ext</th><th class="num">Desc.Trab</th><th class="num">Sueldo</th><th class="num">Extra</th><th class="num">Bono</th><th class="num">Desc.</th><th class="num">Neto</th><th class="num">Banco</th><th class="num">Cheque</th><th class="num">Efvo.</th></tr></thead><tbody>';
     let subBanco = 0, subEfvo = 0, subCheque = 0, subNeto = 0;
     lista.forEach(c => {
       let badges = '';
@@ -790,13 +796,17 @@ function renderNomina() {
         if (partes.length === 1) heDisplay = partes[0];
         else heDisplay = `<span style="font-size:0.75rem; line-height:1.3;">${partes.join(' + ')}<br><b>= ${c.horasExtra}h</b></span>`;
       }
-      html += `<tr><td>${c.empleado.nombre}${badges}</td><td>${c.asistencias}</td><td>${c.faltas}</td><td>${heDisplay}</td>
+      // Celda descansos trabajados: "1 ($800)" o vacío si no hay
+      const dtDisplay = c.descansosTrabajados > 0
+        ? `${c.descansosTrabajados} ($${c.pagoDescansoTrabajado.toFixed(2)})`
+        : '—';
+      html += `<tr><td>${c.empleado.nombre}${badges}</td><td>${c.asistencias}</td><td>${c.faltas}</td><td>${heDisplay}</td><td class="num">${dtDisplay}</td>
         <td class="num">$${c.sueldoBruto.toFixed(2)}</td><td class="num">$${c.pagoExtra.toFixed(2)}</td><td class="num">$${c.bonos.toFixed(2)}</td>
         <td class="num">-$${c.descuentosTotal.toFixed(2)}</td><td class="num"><b>$${c.neto.toFixed(2)}</b></td>
         <td class="num">$${c.banco.toFixed(2)}</td><td class="num">$${c.cheque.toFixed(2)}</td><td class="num">$${c.efvo.toFixed(2)}</td></tr>`;
       subBanco += c.banco; subEfvo += c.efvo; subCheque += c.cheque; subNeto += c.neto;
     });
-    html += `<tr style="background:#faf3ef; font-weight:bold;"><td colspan="8">Subtotal</td><td class="num">$${subNeto.toFixed(2)}</td><td class="num">$${subBanco.toFixed(2)}</td><td class="num">$${subCheque.toFixed(2)}</td><td class="num">$${subEfvo.toFixed(2)}</td></tr>`;
+    html += `<tr style="background:#faf3ef; font-weight:bold;"><td colspan="9">Subtotal</td><td class="num">$${subNeto.toFixed(2)}</td><td class="num">$${subBanco.toFixed(2)}</td><td class="num">$${subCheque.toFixed(2)}</td><td class="num">$${subEfvo.toFixed(2)}</td></tr>`;
     html += '</tbody></table></div>';
     totalBanco += subBanco; totalEfvo += subEfvo; totalCheque += subCheque; totalNeto += subNeto;
   });
@@ -817,10 +827,10 @@ function exportarCSV() {
   if (tipo === 'semanal') { fechaIni = inicioSemanaViernes(fechaRef); fechaFin = finSemanaJueves(fechaIni); }
   else { const r = rangoQuincenal(fechaRef); fechaIni = r.inicio; fechaFin = r.fin; }
   const lista = empleados.filter(e => e.activo && e.tipo === tipo);
-  let csv = 'Sucursal,Empleado,Asist,Faltas,HE,Sueldo,Extra,Bonos,DescTotal,Neto,Banco,Cheque,Efvo\n';
+  let csv = 'Sucursal,Empleado,Asist,Faltas,HE,DescTrab,PagoDescTrab,Sueldo,Extra,Bonos,DescTotal,Neto,Banco,Cheque,Efvo\n';
   lista.forEach(emp => {
     const c = calcularNominaEmpleado(emp, fechaIni, fechaFin);
-    csv += `"${emp.sucursal}","${emp.nombre}",${c.asistencias},${c.faltas},${c.horasExtra},${c.sueldoBruto.toFixed(2)},${c.pagoExtra.toFixed(2)},${c.bonos.toFixed(2)},${c.descuentosTotal.toFixed(2)},${c.neto.toFixed(2)},${c.banco.toFixed(2)},${c.cheque.toFixed(2)},${c.efvo.toFixed(2)}\n`;
+    csv += `"${emp.sucursal}","${emp.nombre}",${c.asistencias},${c.faltas},${c.horasExtra},${c.descansosTrabajados},${c.pagoDescansoTrabajado.toFixed(2)},${c.sueldoBruto.toFixed(2)},${c.pagoExtra.toFixed(2)},${c.bonos.toFixed(2)},${c.descuentosTotal.toFixed(2)},${c.neto.toFixed(2)},${c.banco.toFixed(2)},${c.cheque.toFixed(2)},${c.efvo.toFixed(2)}\n`;
   });
   const blob = new Blob([csv], {type:'text/csv'});
   const url = URL.createObjectURL(blob);
