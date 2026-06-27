@@ -427,8 +427,9 @@ function renderChecadorEmpleados() {
     const iniciales = e.nombre.split(' ').slice(0,2).map(p => p[0]).join('');
     const horario = obtenerHorarioDia(e, fecha);
     let infoHorario = '';
-    if (e.tipo === 'semanal') infoHorario = e.turno === 'vespertino' ? 'Vespertino 12-20' : 'Matutino 9-17';
-    else if (e.horariosEspeciales && e.horariosEspeciales[diaSemana(fecha)]) infoHorario = `Hoy ${horario.entrada}-${horario.salida}`;
+    // FIX: si hay horario especial para ese día, mostrarlo (aplica a semanal y quincenal)
+    if (e.horariosEspeciales && e.horariosEspeciales[diaSemana(fecha)]) infoHorario = `Hoy ${horario.entrada}-${horario.salida}`;
+    else if (e.tipo === 'semanal') infoHorario = e.turno === 'vespertino' ? 'Vespertino 12-20' : 'Matutino 9-17';
     let estadoTxt, estadoClass;
     if (dentro) { estadoTxt = '🟢 Dentro'; estadoClass = 'dentro'; }
     else if (tieneSalida) { estadoTxt = '✓ Salió'; estadoClass = 'fin'; }
@@ -477,8 +478,9 @@ function fechasEnRango(ini, fin) { const out = []; let d = new Date(ini + 'T12:0
 
 function obtenerHorarioDia(emp, fecha) {
   const dia = diaSemana(fecha);
-  if (emp.tipo === 'semanal') return TURNOS[emp.turno || 'matutino'];
+  // FIX: horarios especiales tienen prioridad sobre turno (aplica tanto para semanal como quincenal)
   if (emp.horariosEspeciales && emp.horariosEspeciales[dia]) return emp.horariosEspeciales[dia];
+  if (emp.tipo === 'semanal') return TURNOS[emp.turno || 'matutino'];
   return HORARIO_ESTANDAR_QUINCENAL;
 }
 
@@ -873,8 +875,9 @@ function renderHorariosForm(horariosEspeciales = {}) {
 
 function toggleHorarios() {
   const tipo = document.getElementById('emp-tipo').value;
+  // Turno solo aplica a semanal (matutino/vespertino), pero los horarios especiales por día están disponibles para ambos
   document.getElementById('campo-turno').style.display = tipo === 'semanal' ? 'block' : 'none';
-  document.getElementById('seccion-horarios').style.display = tipo === 'quincenal' ? 'block' : 'none';
+  document.getElementById('seccion-horarios').style.display = 'block';
 }
 
 function abrirNuevoEmpleado() {
