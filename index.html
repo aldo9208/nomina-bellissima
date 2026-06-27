@@ -457,6 +457,16 @@ function diaSemana(fechaStr) { const d = new Date(fechaStr + 'T12:00:00'); retur
 function fechaCorta(fechaStr) { const d = new Date(fechaStr + 'T12:00:00'); return d.getDate() + '/' + (d.getMonth()+1); }
 function inicioSemanaLunes(fechaStr) { const d = new Date(fechaStr + 'T12:00:00'); const dia = d.getDay(); const offset = dia === 0 ? -6 : 1 - dia; d.setDate(d.getDate() + offset); return d.toISOString().split('T')[0]; }
 function finSemanaDomingo(inicioStr) { const d = new Date(inicioStr + 'T12:00:00'); d.setDate(d.getDate() + 6); return d.toISOString().split('T')[0]; }
+// FIX: nómina semanal corta de viernes a jueves (Aldo calcula los viernes)
+function inicioSemanaViernes(fechaStr) {
+  const d = new Date(fechaStr + 'T12:00:00');
+  const dia = d.getDay(); // 0=dom,1=lun,2=mar,3=mie,4=jue,5=vie,6=sab
+  // queremos el viernes <= fechaStr. Si dia >= 5 (vie,sab), retroceder (dia - 5). Si dia < 5, retroceder (dia + 2).
+  const offset = dia >= 5 ? -(dia - 5) : -(dia + 2);
+  d.setDate(d.getDate() + offset);
+  return d.toISOString().split('T')[0];
+}
+function finSemanaJueves(inicioStr) { const d = new Date(inicioStr + 'T12:00:00'); d.setDate(d.getDate() + 6); return d.toISOString().split('T')[0]; }
 function rangoQuincenal(fechaStr) {
   const d = new Date(fechaStr + 'T12:00:00'); const dia = d.getDate(); const m = d.getMonth(), y = d.getFullYear();
   if (dia <= 15) return { inicio: `${y}-${String(m+1).padStart(2,'0')}-01`, fin: `${y}-${String(m+1).padStart(2,'0')}-15` };
@@ -752,7 +762,7 @@ function renderNomina() {
   if (!fechaInp.value) fechaInp.value = hoy();
   const fechaRef = fechaInp.value;
   let fechaIni, fechaFin, titulo;
-  if (tipo === 'semanal') { fechaIni = inicioSemanaLunes(fechaRef); fechaFin = finSemanaDomingo(fechaIni); titulo = `Semana ${fechaIni} al ${fechaFin}`; }
+  if (tipo === 'semanal') { fechaIni = inicioSemanaViernes(fechaRef); fechaFin = finSemanaJueves(fechaIni); titulo = `Semana ${fechaIni} (vie) al ${fechaFin} (jue)`; }
   else { const r = rangoQuincenal(fechaRef); fechaIni = r.inicio; fechaFin = r.fin; titulo = `Quincena ${fechaIni} al ${fechaFin}`; }
   const empleadosTipo = empleados.filter(e => e.activo && e.tipo === tipo);
   const porSucursal = {};
@@ -804,7 +814,7 @@ function exportarCSV() {
   const tipo = document.getElementById('nom-tipo').value;
   const fechaRef = document.getElementById('nom-fecha-ref').value;
   let fechaIni, fechaFin;
-  if (tipo === 'semanal') { fechaIni = inicioSemanaLunes(fechaRef); fechaFin = finSemanaDomingo(fechaIni); }
+  if (tipo === 'semanal') { fechaIni = inicioSemanaViernes(fechaRef); fechaFin = finSemanaJueves(fechaIni); }
   else { const r = rangoQuincenal(fechaRef); fechaIni = r.inicio; fechaFin = r.fin; }
   const lista = empleados.filter(e => e.activo && e.tipo === tipo);
   let csv = 'Sucursal,Empleado,Asist,Faltas,HE,Sueldo,Extra,Bonos,DescTotal,Neto,Banco,Cheque,Efvo\n';
