@@ -941,13 +941,12 @@ async function guardarEmpleado() {
   const concepto = document.getElementById('emp-desc-fijo-concepto').value.trim();
   const monto = parseFloat(document.getElementById('emp-desc-fijo-monto').value) || 0;
   if (concepto && monto > 0) data.descuento_fijo = { concepto, monto };
-  if (tipo === 'quincenal') {
-    DIAS.forEach(d => {
-      const ent = document.getElementById(`hor-${d}-ent`).value;
-      const sal = document.getElementById(`hor-${d}-sal`).value;
-      if (ent && sal) data.horarios_especiales[d] = { entrada: ent, salida: sal };
-    });
-  }
+  // FIX: leer horarios especiales para AMBOS tipos (semanal y quincenal)
+  DIAS.forEach(d => {
+    const ent = document.getElementById(`hor-${d}-ent`).value;
+    const sal = document.getElementById(`hor-${d}-sal`).value;
+    if (ent && sal) data.horarios_especiales[d] = { entrada: ent, salida: sal };
+  });
   if (!data.nombre || !data.nip) { showToast('Falta nombre o NIP', 'error'); return; }
   if (data.nip.length !== 4) { showToast('NIP debe ser 4 dígitos', 'error'); return; }
   let res;
