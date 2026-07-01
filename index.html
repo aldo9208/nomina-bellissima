@@ -741,7 +741,9 @@ function calcularNominaEmpleado(emp, fechaIni, fechaFin) {
   if (emp.tipo === 'semanal') {
     sueldoDiario = emp.sueldo / 7; sueldoBruto = emp.sueldo; descuentoFaltas = sueldoDiario * faltas;
   } else {
-    const diasQuincena = fechas.length; sueldoDiario = emp.sueldo / diasQuincena; sueldoBruto = emp.sueldo; descuentoFaltas = sueldoDiario * faltas;
+    // FIX: día promedio mensual = 30.4166 días / 2 quincenas = 15.2083 días por quincena
+    const DIAS_QUINCENA_PROMEDIO = 15.2083;
+    sueldoDiario = emp.sueldo / DIAS_QUINCENA_PROMEDIO; sueldoBruto = emp.sueldo; descuentoFaltas = sueldoDiario * faltas;
   }
   let descuentosManuales = 0, bonos = 0, horasExtraManuales = 0;
   eventosEmp.forEach(ev => {
