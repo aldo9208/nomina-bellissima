@@ -247,6 +247,7 @@ const DIAS = ['lun','mar','mie','jue','vie','sab','dom'];
 const DIAS_NOMBRE = {lun:'Lunes', mar:'Martes', mie:'Miércoles', jue:'Jueves', vie:'Viernes', sab:'Sábado', dom:'Domingo'};
 const TARIFA_HORA_EXTRA = 30;
 const HORARIO_ESTANDAR_QUINCENAL = { entrada: '09:00', salida: '20:00' };
+const HORARIO_DOMINGO = { entrada: '10:00', salida: '18:30' }; // FIX: todas las sucursales cierran 18:30 el domingo
 const TURNOS = { matutino: { entrada: '09:00', salida: '17:00' }, vespertino: { entrada: '12:00', salida: '20:00' } };
 
 let empleados = [], registros = [], excepciones = [], eventos = [];
@@ -478,8 +479,11 @@ function fechasEnRango(ini, fin) { const out = []; let d = new Date(ini + 'T12:0
 
 function obtenerHorarioDia(emp, fecha) {
   const dia = diaSemana(fecha);
-  // FIX: horarios especiales tienen prioridad sobre turno (aplica tanto para semanal como quincenal)
+  // Prioridad 1: horario especial explícito para ese día
   if (emp.horariosEspeciales && emp.horariosEspeciales[dia]) return emp.horariosEspeciales[dia];
+  // Prioridad 2: domingos usan horario reducido en todas las sucursales
+  if (dia === 'dom') return HORARIO_DOMINGO;
+  // Prioridad 3: turno para semanales, estándar para quincenales
   if (emp.tipo === 'semanal') return TURNOS[emp.turno || 'matutino'];
   return HORARIO_ESTANDAR_QUINCENAL;
 }
@@ -708,7 +712,8 @@ function calcularNominaEmpleado(emp, fechaIni, fechaFin) {
     if (estado === '•' && seriaDescansoNormal) descansosTrabajados++;
     if (estado === '•') {
       asistencias++;
-      if (emp.tipo === 'semanal' && !diasConHEManual.has(f)) {
+      // FIX: los domingos NO cuentan horas extra automáticas
+      if (emp.tipo === 'semanal' && !diasConHEManual.has(f) && diaSemana(f) !== 'dom') {
         const salida = registros.find(r => r.empleadoId === emp.id && r.fecha === f && r.tipo === 'salida');
         if (salida) {
           const horario = obtenerHorarioDia(emp, f);
