@@ -61,6 +61,8 @@
   .cal-cell select.asistencia { color: #2e7d32; }
   .cal-cell select.descanso { color: #1976d2; background: #e3f2fd; }
   .cal-cell select.falta { color: #c62828; background: #ffebee; }
+  .cal-cell select.vacaciones { color: #e65100; background: #fff3e0; }
+  .cal-cell select.incapacidad { color: #6a1b9a; background: #f3e5f5; }
   .info-box { background: #e3f2fd; border-left: 4px solid #1976d2; padding: 12px; border-radius: 4px; margin-bottom: 12px; font-size: 0.85rem; }
   .btn { padding: 10px 20px; border: none; background: #c2185b; color: white; border-radius: 8px; cursor: pointer; font-weight: 600; }
   .btn.secondary { background: #757575; }
@@ -128,7 +130,7 @@
     <div class="card">
       <h2>Vista de asistencias</h2>
       <div class="filter-row"><select id="enc-sucursal"></select><input type="date" id="enc-fecha"></div>
-      <div class="info-box">Cambia la asistencia del día si es necesario. <b>•</b> Asistencia · <b>D</b> Descanso · <b>F</b> Falta · <b>FJ</b> Falta justificada · <b>FE</b> Festivo · <b>I</b> Ingreso</div>
+      <div class="info-box">Cambia la asistencia del día si es necesario. <b>•</b> Asistencia · <b>D</b> Descanso · <b>F</b> Falta · <b>FJ</b> Falta justificada · <b>FE</b> Festivo · <b>I</b> Ingreso · <b>V</b> Vacaciones · <b>INC</b> Incapacidad</div>
       <div class="tabla-wrap"><div class="calendario" id="calendario-semana"></div></div>
       <h3 style="margin-top:24px;">Descuentos / Bonos / Préstamos manuales</h3>
       <div class="empleado-form">
@@ -606,7 +608,7 @@ function renderEncargada() {
     html += `<div class="cal-cell empleado">${e.nombre}</div>`;
     fechas.forEach(f => {
       const estado = obtenerEstadoDia(e.id, f);
-      const cls = estado === '•' ? 'asistencia' : (estado === 'D' ? 'descanso' : (estado === 'F' ? 'falta' : ''));
+      const cls = estado === '•' ? 'asistencia' : (estado === 'D' ? 'descanso' : (estado === 'F' ? 'falta' : (estado === 'V' ? 'vacaciones' : (estado === 'INC' ? 'incapacidad' : ''))));
       html += `<div class="cal-cell"><select class="${cls}" onchange="cambiarExcepcion(${e.id}, '${f}', this.value)">
         <option value="auto" ${estado === '•' ? 'selected' : ''}>•</option>
         <option value="D" ${estado === 'D' ? 'selected' : ''}>D</option>
@@ -614,6 +616,8 @@ function renderEncargada() {
         <option value="FJ" ${estado === 'FJ' ? 'selected' : ''}>FJ</option>
         <option value="FE" ${estado === 'FE' ? 'selected' : ''}>FE</option>
         <option value="I" ${estado === 'I' ? 'selected' : ''}>I</option>
+        <option value="V" ${estado === 'V' ? 'selected' : ''}>V</option>
+        <option value="INC" ${estado === 'INC' ? 'selected' : ''}>INC</option>
       </select></div>`;
     });
   });
@@ -695,7 +699,7 @@ async function eliminarEvento(id) {
 
 function calcularNominaEmpleado(emp, fechaIni, fechaFin) {
   const fechas = fechasEnRango(fechaIni, fechaFin);
-  let asistencias = 0, faltas = 0, descansos = 0, festivos = 0, horasExtra = 0, descansosTrabajados = 0;
+  let asistencias = 0, faltas = 0, descansos = 0, festivos = 0, horasExtra = 0, descansosTrabajados = 0, incapacidades = 0;
   const desgloseHE = []; // [{fecha, horas, origen: 'auto'|'manual'}]
   // FIX: días con horas extra MANUALES (por fecha) — no calcular auto para esos días
   const eventosEmp = eventos.filter(ev => ev.empleadoId === emp.id && ev.fecha >= fechaIni && ev.fecha <= fechaFin);
@@ -736,8 +740,12 @@ function calcularNominaEmpleado(emp, fechaIni, fechaFin) {
     else if (estado === 'FJ') asistencias++;
     else if (estado === 'FE') { asistencias++; festivos++; }
     else if (estado === 'I') asistencias++;
+    // FIX: V (vacaciones) se paga como día normal → cuenta como asistencia
+    else if (estado === 'V') asistencias++;
+    // FIX: INC (incapacidad) NO se paga pero tampoco es falta → se descuenta como día no trabajado
+    else if (estado === 'INC') incapacidades++;
   });
-  let sueldoDiario, sueldoBruto, descuentoFaltas;
+  let sueldoDiario, sueldoBruto, descuentoFaltas, descuentoIncapacidad;
   if (emp.tipo === 'semanal') {
     sueldoDiario = emp.sueldo / 7; sueldoBruto = emp.sueldo; descuentoFaltas = sueldoDiario * faltas;
   } else {
@@ -745,6 +753,8 @@ function calcularNominaEmpleado(emp, fechaIni, fechaFin) {
     const DIAS_QUINCENA_PROMEDIO = 15.2083;
     sueldoDiario = emp.sueldo / DIAS_QUINCENA_PROMEDIO; sueldoBruto = emp.sueldo; descuentoFaltas = sueldoDiario * faltas;
   }
+  // FIX: descontar días de incapacidad del sueldo (el IMSS los cubre, empresa no paga)
+  descuentoIncapacidad = sueldoDiario * incapacidades;
   let descuentosManuales = 0, bonos = 0, horasExtraManuales = 0;
   eventosEmp.forEach(ev => {
     if (ev.tipo === 'descuento' || ev.tipo === 'prestamo' || ev.tipo === 'vale') descuentosManuales += ev.monto;
@@ -763,12 +773,12 @@ function calcularNominaEmpleado(emp, fechaIni, fechaFin) {
   }
   // FIX: pago por descansos trabajados (1 día normal por cada descanso trabajado)
   const pagoDescansoTrabajado = descansosTrabajados * sueldoDiario;
-  const descuentosTotal = descuentoFaltas + descuentosManuales + descuentoFijo;
+  const descuentosTotal = descuentoFaltas + descuentoIncapacidad + descuentosManuales + descuentoFijo;
   const neto = sueldoBruto + pagoExtra + pagoDescansoTrabajado + bonos - descuentosTotal;
   const banco = Math.min(emp.banco || 0, neto);
   const cheque = Math.min(emp.cheque || 0, Math.max(0, neto - banco));
   const efvo = Math.max(0, neto - banco - cheque);
-  return { empleado: emp, asistencias, faltas, descansos, descansosTrabajados, pagoDescansoTrabajado, horasExtra, desgloseHE, sueldoBruto, sueldoDiario, pagoExtra, bonos, descuentoFaltas, descuentosManuales, descuentoFijo, conceptoFijo, descuentosTotal, neto, banco, cheque, efvo };
+  return { empleado: emp, asistencias, faltas, descansos, descansosTrabajados, pagoDescansoTrabajado, horasExtra, desgloseHE, incapacidades, descuentoIncapacidad, sueldoBruto, sueldoDiario, pagoExtra, bonos, descuentoFaltas, descuentosManuales, descuentoFijo, conceptoFijo, descuentosTotal, neto, banco, cheque, efvo };
 }
 
 function renderNomina() {
@@ -836,10 +846,10 @@ function exportarCSV() {
   if (tipo === 'semanal') { fechaIni = inicioSemanaViernes(fechaRef); fechaFin = finSemanaJueves(fechaIni); }
   else { const r = rangoQuincenal(fechaRef); fechaIni = r.inicio; fechaFin = r.fin; }
   const lista = empleados.filter(e => e.activo && e.tipo === tipo);
-  let csv = 'Sucursal,Empleado,Asist,Faltas,HE,DescTrab,PagoDescTrab,Sueldo,Extra,Bonos,DescTotal,Neto,Banco,Cheque,Efvo\n';
+  let csv = 'Sucursal,Empleado,Asist,Faltas,Inc,HE,DescTrab,PagoDescTrab,Sueldo,Extra,Bonos,DescFaltas,DescInc,DescTotal,Neto,Banco,Cheque,Efvo\n';
   lista.forEach(emp => {
     const c = calcularNominaEmpleado(emp, fechaIni, fechaFin);
-    csv += `"${emp.sucursal}","${emp.nombre}",${c.asistencias},${c.faltas},${c.horasExtra},${c.descansosTrabajados},${c.pagoDescansoTrabajado.toFixed(2)},${c.sueldoBruto.toFixed(2)},${c.pagoExtra.toFixed(2)},${c.bonos.toFixed(2)},${c.descuentosTotal.toFixed(2)},${c.neto.toFixed(2)},${c.banco.toFixed(2)},${c.cheque.toFixed(2)},${c.efvo.toFixed(2)}\n`;
+    csv += `"${emp.sucursal}","${emp.nombre}",${c.asistencias},${c.faltas},${c.incapacidades},${c.horasExtra},${c.descansosTrabajados},${c.pagoDescansoTrabajado.toFixed(2)},${c.sueldoBruto.toFixed(2)},${c.pagoExtra.toFixed(2)},${c.bonos.toFixed(2)},${c.descuentoFaltas.toFixed(2)},${c.descuentoIncapacidad.toFixed(2)},${c.descuentosTotal.toFixed(2)},${c.neto.toFixed(2)},${c.banco.toFixed(2)},${c.cheque.toFixed(2)},${c.efvo.toFixed(2)}\n`;
   });
   const blob = new Blob([csv], {type:'text/csv'});
   const url = URL.createObjectURL(blob);
