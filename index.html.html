@@ -1,0 +1,999 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bellísima - Nómina</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f1ec; min-height: 100vh; color: #2d2424; }
+  .app { max-width: 1100px; margin: 0 auto; padding: 16px; }
+  .header { background: linear-gradient(135deg, #c2185b, #880e4f); color: white; padding: 20px; border-radius: 12px; margin-bottom: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
+  .header h1 { font-size: 1.5rem; }
+  .header .sub { opacity: 0.9; font-size: 0.85rem; }
+  .header .user-info { font-size: 0.85rem; opacity: 0.95; }
+  .nav { display: flex; gap: 8px; margin-bottom: 16px; background: white; padding: 8px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); flex-wrap: wrap; }
+  .nav button { flex: 1; min-width: 120px; padding: 12px; border: none; background: transparent; border-radius: 8px; cursor: pointer; font-weight: 600; color: #666; transition: all 0.2s; font-size: 0.95rem; }
+  .nav button.active { background: #c2185b; color: white; }
+  .card { background: white; border-radius: 12px; padding: 20px; margin-bottom: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+  .card h2 { font-size: 1.2rem; margin-bottom: 16px; color: #880e4f; }
+  .card h3 { font-size: 1rem; margin: 12px 0 8px; color: #444; }
+  .sucursal-select { width: 100%; padding: 12px; font-size: 1rem; border: 2px solid #e8d8d8; border-radius: 8px; margin-bottom: 16px; background: white; }
+  .empleados-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; }
+  .empleado-card { background: #faf3ef; border: 2px solid #e8d8d8; border-radius: 12px; padding: 16px 8px; text-align: center; cursor: pointer; transition: all 0.2s; }
+  .empleado-card:hover { border-color: #c2185b; transform: translateY(-2px); }
+  .empleado-card .avatar { width: 60px; height: 60px; border-radius: 50%; background: linear-gradient(135deg, #f48fb1, #c2185b); color: white; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; font-weight: bold; margin: 0 auto 8px; }
+  .empleado-card .nombre { font-size: 0.85rem; font-weight: 600; line-height: 1.2; }
+  .empleado-card .horario-info { font-size: 0.7rem; color: #888; margin-top: 4px; }
+  .empleado-card .estado { font-size: 0.75rem; margin-top: 6px; padding: 3px 8px; border-radius: 12px; display: inline-block; }
+  .estado.fuera { background: #ffe0e0; color: #c62828; }
+  .estado.dentro { background: #e0f5e0; color: #2e7d32; }
+  .estado.fin { background: #e3e8ed; color: #455a64; }
+  .modal-bg { position: fixed; top:0; left:0; right:0; bottom:0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 100; padding: 20px; overflow-y: auto; }
+  .modal-bg.show { display: flex; }
+  .modal { background: white; border-radius: 16px; padding: 24px; max-width: 380px; width: 100%; max-height: 90vh; overflow-y: auto; }
+  .modal h3 { text-align: center; margin-bottom: 16px; }
+  .nip-display { font-size: 2rem; text-align: center; letter-spacing: 12px; margin: 16px 0; height: 48px; color: #c2185b; font-weight: bold; }
+  .keypad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .keypad button { padding: 18px; font-size: 1.3rem; border: 2px solid #e8d8d8; background: white; border-radius: 12px; cursor: pointer; font-weight: 600; }
+  .keypad button:hover { background: #faf3ef; }
+  .keypad button.action { background: #c2185b; color: white; border-color: #c2185b; }
+  .keypad button.cancel { background: #f5f5f5; }
+  .toast { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: #2e7d32; color: white; padding: 16px 24px; border-radius: 12px; z-index: 200; display: none; box-shadow: 0 4px 16px rgba(0,0,0,0.2); max-width: 90%; text-align: center; }
+  .toast.show { display: block; }
+  .toast.error { background: #c62828; }
+  .toast.warn { background: #f57c00; }
+  .tabla-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; min-width: 700px; }
+  th, td { padding: 8px 6px; text-align: left; border-bottom: 1px solid #f0e8e8; }
+  th { background: #faf3ef; font-weight: 600; color: #555; font-size: 0.75rem; text-transform: uppercase; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .sucursal-header { background: #c2185b; color: white; padding: 10px 16px; border-radius: 8px; margin: 16px 0 8px; font-weight: 600; }
+  .totales { background: #fff3e0; padding: 16px; border-radius: 12px; margin-top: 20px; }
+  .totales .row { display: flex; justify-content: space-between; padding: 6px 0; }
+  .totales .row.total { font-weight: bold; font-size: 1.1rem; border-top: 2px solid #ffb74d; margin-top: 8px; padding-top: 12px; }
+  .calendario { display: grid; grid-template-columns: 180px repeat(7, 1fr); gap: 1px; background: #e8d8d8; border: 1px solid #e8d8d8; border-radius: 8px; overflow: hidden; font-size: 0.75rem; min-width: 600px; }
+  .cal-cell { background: white; padding: 8px 4px; text-align: center; }
+  .cal-cell.head { background: #faf3ef; font-weight: 600; }
+  .cal-cell.empleado { text-align: left; padding: 8px; font-weight: 600; }
+  .cal-cell select { width: 100%; border: none; background: transparent; text-align: center; font-size: 0.85rem; cursor: pointer; padding: 4px 2px; }
+  .cal-cell select.asistencia { color: #2e7d32; }
+  .cal-cell select.descanso { color: #1976d2; background: #e3f2fd; }
+  .cal-cell select.falta { color: #c62828; background: #ffebee; }
+  .cal-cell select.vacaciones { color: #e65100; background: #fff3e0; }
+  .cal-cell select.incapacidad { color: #6a1b9a; background: #f3e5f5; }
+  .info-box { background: #e3f2fd; border-left: 4px solid #1976d2; padding: 12px; border-radius: 4px; margin-bottom: 12px; font-size: 0.85rem; }
+  .btn { padding: 10px 20px; border: none; background: #c2185b; color: white; border-radius: 8px; cursor: pointer; font-weight: 600; }
+  .btn.secondary { background: #757575; }
+  .btn:hover { opacity: 0.9; }
+  .btn.outline { background: transparent; color: white; border: 2px solid white; padding: 6px 14px; }
+  .filter-row { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+  .filter-row select, .filter-row input { padding: 8px 12px; border: 2px solid #e8d8d8; border-radius: 8px; font-size: 0.9rem; background: white; }
+  .empleado-form { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+  .empleado-form input, .empleado-form select { padding: 10px; border: 2px solid #e8d8d8; border-radius: 8px; }
+  .empleado-form .full { grid-column: 1 / -1; }
+  .empleado-form label { font-size: 0.75rem; color: #666; display: block; margin-bottom: 2px; }
+  .horarios-tabla { width: 100%; font-size: 0.85rem; margin-top: 8px; }
+  .horarios-tabla th, .horarios-tabla td { padding: 6px; text-align: center; border: 1px solid #e8d8d8; }
+  .horarios-tabla input { width: 100%; border: none; text-align: center; padding: 4px; font-size: 0.85rem; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.7rem; font-weight: 600; margin-left: 6px; }
+  .badge.infonavit { background: #fff3e0; color: #e65100; }
+  .badge.falta { background: #ffebee; color: #c62828; }
+  .login-container { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; background: linear-gradient(135deg, #faf3ef, #f5f1ec); }
+  .login-card { background: white; border-radius: 16px; padding: 32px; max-width: 400px; width: 100%; box-shadow: 0 8px 24px rgba(0,0,0,0.08); }
+  .login-card h1 { color: #880e4f; margin-bottom: 8px; }
+  .login-card .sub { color: #666; font-size: 0.9rem; margin-bottom: 24px; }
+  .login-card label { display: block; font-size: 0.8rem; color: #666; margin: 12px 0 4px; }
+  .login-card input { width: 100%; padding: 12px; border: 2px solid #e8d8d8; border-radius: 8px; font-size: 1rem; }
+  .login-card .btn { width: 100%; margin-top: 16px; padding: 14px; }
+  .login-card .error-msg { color: #c62828; margin-top: 12px; font-size: 0.85rem; text-align: center; }
+  .checador-mode .nav { display: none; }
+  @media (max-width: 600px) { .empleado-form { grid-template-columns: 1fr; } .header h1 { font-size: 1.2rem; } }
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="login-screen" class="login-container" style="display:none;">
+  <div class="login-card">
+    <h1>💄 Bellísima</h1>
+    <div class="sub">Sistema de Nómina — Inicio de sesión</div>
+    <label>Email</label>
+    <input type="email" id="login-email" placeholder="usuario@bellissima.local" autocomplete="username">
+    <label>Contraseña</label>
+    <input type="password" id="login-password" placeholder="Tu contraseña" autocomplete="current-password">
+    <button class="btn" onclick="iniciarSesion()">Iniciar sesión</button>
+    <div class="error-msg" id="login-error"></div>
+  </div>
+</div>
+
+<!-- APP PRINCIPAL -->
+<div id="main-app" class="app" style="display:none;">
+  <div class="header">
+    <div>
+      <h1>💄 Bellísima — Nómina</h1>
+      <div class="sub" id="header-sub">Cargando...</div>
+    </div>
+    <div style="text-align:right;">
+      <div class="user-info" id="user-info"></div>
+      <button class="btn outline" onclick="cerrarSesion()" style="margin-top:6px;">Cerrar sesión</button>
+    </div>
+  </div>
+  <div class="nav" id="nav-tabs">
+    <button class="active" data-view="encargada">📅 Asistencias</button>
+    <button data-view="nomina">💰 Nómina</button>
+    <button data-view="empleados">👥 Empleados</button>
+  </div>
+
+  <div id="view-encargada" class="view">
+    <div class="card">
+      <h2>Vista de asistencias</h2>
+      <div class="filter-row"><select id="enc-sucursal"></select><input type="date" id="enc-fecha"></div>
+      <div class="info-box">Cambia la asistencia del día si es necesario. <b>•</b> Asistencia · <b>D</b> Descanso · <b>F</b> Falta · <b>FJ</b> Falta justificada · <b>FE</b> Festivo · <b>I</b> Ingreso · <b>V</b> Vacaciones · <b>INC</b> Incapacidad</div>
+      <div class="tabla-wrap"><div class="calendario" id="calendario-semana"></div></div>
+      <h3 style="margin-top:24px;">Descuentos / Bonos / Préstamos manuales</h3>
+      <div class="empleado-form">
+        <select id="evento-empleado"></select>
+        <select id="evento-tipo" onchange="toggleFechaEvento()"><option value="descuento">Descuento</option><option value="bono">Bono</option><option value="prestamo">Préstamo</option><option value="vale">Vale</option><option value="hora_extra">Hora extra (monto = horas)</option></select>
+        <input type="number" id="evento-monto" placeholder="Monto">
+        <input type="text" id="evento-desc" placeholder="Descripción (opcional)">
+        <input type="date" id="evento-fecha-aplica" style="display:none;" title="Día al que aplican las horas extra">
+        <button class="btn full" onclick="agregarEvento()">Agregar evento</button>
+      </div>
+      <div id="eventos-lista"></div>
+    </div>
+  </div>
+
+  <div id="view-nomina" class="view" style="display:none;">
+    <div class="card">
+      <h2>Pre-nómina del periodo</h2>
+      <div class="filter-row">
+        <select id="nom-tipo"><option value="quincenal">Quincenal</option><option value="semanal">Semanal</option></select>
+        <input type="date" id="nom-fecha-ref">
+        <button class="btn" onclick="renderNomina()">Calcular</button>
+      </div>
+      <div id="nomina-contenido"></div>
+    </div>
+  </div>
+
+  <div id="view-empleados" class="view" style="display:none;">
+    <div class="card">
+      <h2>Catálogo de empleados</h2>
+      <div class="info-box">Configura cada empleado: sueldo, NIP, turno, horarios especiales, descuento fijo recurrente.</div>
+      <button class="btn" onclick="abrirNuevoEmpleado()">+ Agregar empleado</button>
+      <div class="filter-row" style="margin-top:16px;">
+        <select id="emp-filtro-sucursal"><option value="">Todas</option></select>
+        <select id="emp-filtro-tipo"><option value="">Todos</option><option value="semanal">Semanal</option><option value="quincenal">Quincenal</option></select>
+      </div>
+      <div class="tabla-wrap"><table id="tabla-empleados"><thead><tr><th>Nombre</th><th>Sucursal</th><th>Tipo</th><th>Turno/Horario</th><th class="num">Sueldo</th><th>NIP</th><th class="num">Banco</th><th class="num">Cheque</th><th class="num">Desc.fijo</th><th></th></tr></thead><tbody></tbody></table></div>
+    </div>
+  </div>
+</div>
+
+<!-- CHECADOR (modo independiente sin login) -->
+<div id="checador-app" class="app checador-mode" style="display:none;">
+  <div class="header">
+    <div>
+      <h1>💄 Checador <span id="checador-suc"></span></h1>
+      <div class="sub">Marca tu entrada o salida</div>
+    </div>
+    <div id="checador-fecha" style="font-size:0.9rem; opacity:0.9;"></div>
+  </div>
+  <div class="card">
+    <div class="info-box">Toca tu foto, ingresa tu NIP de 4 dígitos y registra tu entrada o salida.</div>
+    <div class="empleados-grid" id="empleados-checador"></div>
+  </div>
+</div>
+
+<!-- MODALES -->
+<div class="modal-bg" id="modal-nip"><div class="modal">
+  <h3 id="modal-empleado-nombre">Empleado</h3>
+  <div id="modal-accion" style="text-align:center; color:#666; margin-bottom:8px;">Marca tu entrada</div>
+  <div class="nip-display" id="nip-display"></div>
+  <div class="keypad">
+    <button onclick="nipPress('1')">1</button><button onclick="nipPress('2')">2</button><button onclick="nipPress('3')">3</button>
+    <button onclick="nipPress('4')">4</button><button onclick="nipPress('5')">5</button><button onclick="nipPress('6')">6</button>
+    <button onclick="nipPress('7')">7</button><button onclick="nipPress('8')">8</button><button onclick="nipPress('9')">9</button>
+    <button class="cancel" onclick="cerrarModal()">✕</button><button onclick="nipPress('0')">0</button><button class="action" onclick="confirmarNip()">✓</button>
+  </div>
+</div></div>
+
+<div class="modal-bg" id="modal-empleado"><div class="modal" style="max-width:560px;">
+  <h3 id="modal-emp-titulo">Nuevo empleado</h3>
+  <div class="empleado-form">
+    <div class="full"><label>Nombre completo</label><input type="text" id="emp-nombre"></div>
+    <div><label>Sucursal</label><select id="emp-sucursal"></select></div>
+    <div><label>Puesto</label><select id="emp-puesto"><option value="vendedora">Vendedora</option><option value="encargada">Encargada</option><option value="admin">Admin</option></select></div>
+    <div><label>Tipo de pago</label><select id="emp-tipo" onchange="toggleHorarios()"><option value="quincenal">Quincenal</option><option value="semanal">Semanal</option></select></div>
+    <div id="campo-turno"><label>Turno</label><select id="emp-turno"><option value="matutino">Matutino (9-17)</option><option value="vespertino">Vespertino (12-20)</option></select></div>
+    <div><label>Sueldo</label><input type="number" id="emp-sueldo" step="0.01"></div>
+    <div><label>NIP (4 dígitos)</label><input type="text" id="emp-nip" maxlength="4"></div>
+    <div><label>Forma pago</label><select id="emp-forma-pago"><option value="banco">Banco</option><option value="efectivo">Efectivo</option><option value="cheque">Cheque</option><option value="mixto">Mixto</option></select></div>
+    <div><label>Monto banco</label><input type="number" id="emp-banco" step="0.01"></div>
+    <div><label>Monto cheque</label><input type="number" id="emp-cheque" step="0.01"></div>
+    <div><label>Día descanso</label><select id="emp-descanso"><option value="dom">Domingo</option><option value="lun">Lunes</option><option value="mar">Martes</option><option value="mie">Miércoles</option><option value="jue">Jueves</option><option value="vie">Viernes</option><option value="sab">Sábado</option></select></div>
+    <div><label>Estado</label><select id="emp-activo"><option value="true">Activo</option><option value="false">Inactivo</option></select></div>
+    <div class="full"><label>Descuento fijo recurrente</label>
+      <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
+        <input type="text" id="emp-desc-fijo-concepto" placeholder="Concepto">
+        <input type="number" id="emp-desc-fijo-monto" placeholder="Monto" step="0.01">
+      </div>
+    </div>
+  </div>
+  <div id="seccion-horarios" style="margin-top:16px;">
+    <h3>Horarios especiales</h3>
+    <p style="font-size:0.8rem; color:#666; margin-bottom:8px;">Deja en blanco para horario estándar (9-20).</p>
+    <table class="horarios-tabla"><thead><tr><th>Día</th><th>Entrada</th><th>Salida</th></tr></thead><tbody id="horarios-body"></tbody></table>
+  </div>
+  <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:16px;">
+    <button class="btn secondary" onclick="cerrarModalEmpleado()">Cancelar</button>
+    <button class="btn" onclick="guardarEmpleado()">Guardar</button>
+  </div>
+</div></div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const SUPABASE_URL = 'https://zatalcbxqymnzzgpqqzd.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_b93NfDD7UU77F9HC1G5PRg_Nl-0Dhis';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+const SUCURSALES = ['Matriz','Oficina','Morelos','Hidalgo','Allende','Tlapacoyán','Papantla','Perote','Independencia','Ávila Camacho','Misantla'];
+const SLUG_TO_SUCURSAL = {
+  'matriz':'Matriz','oficina':'Oficina','morelos':'Morelos','hidalgo':'Hidalgo','allende':'Allende',
+  'tlapacoyan':'Tlapacoyán','papantla':'Papantla','perote':'Perote','independencia':'Independencia',
+  'avila-camacho':'Ávila Camacho','avilacamacho':'Ávila Camacho','misantla':'Misantla'
+};
+const DIAS = ['lun','mar','mie','jue','vie','sab','dom'];
+const DIAS_NOMBRE = {lun:'Lunes', mar:'Martes', mie:'Miércoles', jue:'Jueves', vie:'Viernes', sab:'Sábado', dom:'Domingo'};
+const TARIFA_HORA_EXTRA = 30;
+const HORARIO_ESTANDAR_QUINCENAL = { entrada: '09:00', salida: '20:00' };
+const HORARIO_DOMINGO = { entrada: '10:00', salida: '18:30' }; // FIX: todas las sucursales cierran 18:30 el domingo
+const TURNOS = { matutino: { entrada: '09:00', salida: '17:00' }, vespertino: { entrada: '12:00', salida: '20:00' } };
+
+let empleados = [], registros = [], excepciones = [], eventos = [];
+let currentNip = '', currentEmpleadoId = null, empEditandoId = null;
+let usuario = null; // {email, rol, sucursal}
+let modoChecador = false, sucursalChecador = null;
+
+function dbToEmp(row) {
+  return {
+    id: row.id, nombre: row.nombre, sucursal: row.sucursal, puesto: row.puesto, tipo: row.tipo,
+    sueldo: parseFloat(row.sueldo), nip: row.nip, formaPago: row.forma_pago,
+    banco: parseFloat(row.banco) || 0, cheque: parseFloat(row.cheque) || 0,
+    descanso: row.descanso, turno: row.turno, activo: row.activo,
+    horariosEspeciales: row.horarios_especiales || {},
+    descuentoFijo: row.descuento_fijo
+  };
+}
+
+function detectarModo() {
+  // Si la URL contiene /checador/[sucursal] activa modo checador
+  const path = window.location.pathname.toLowerCase();
+  const hash = window.location.hash.toLowerCase();
+  for (const slug of Object.keys(SLUG_TO_SUCURSAL)) {
+    if (path.includes('/checador/' + slug) || hash.includes('checador/' + slug) || hash.includes('checador=' + slug)) {
+      return SLUG_TO_SUCURSAL[slug];
+    }
+  }
+  return null;
+}
+
+async function init() {
+  const sucChecador = detectarModo();
+  if (sucChecador) {
+    modoChecador = true;
+    sucursalChecador = sucChecador;
+    iniciarChecador();
+    return;
+  }
+  // Modo normal: verificar sesión
+  const { data: { session } } = await sb.auth.getSession();
+  if (session) {
+    await cargarUsuario(session.user);
+    mostrarApp();
+  } else {
+    mostrarLogin();
+  }
+}
+
+function mostrarLogin() {
+  document.getElementById('login-screen').style.display = 'flex';
+  document.getElementById('main-app').style.display = 'none';
+}
+
+async function iniciarSesion() {
+  const email = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+  const errEl = document.getElementById('login-error');
+  errEl.textContent = '';
+  if (!email || !password) { errEl.textContent = 'Llena email y contraseña'; return; }
+  const { data, error } = await sb.auth.signInWithPassword({ email, password });
+  if (error) { errEl.textContent = 'Credenciales incorrectas'; return; }
+  await cargarUsuario(data.user);
+  mostrarApp();
+}
+
+async function cargarUsuario(authUser) {
+  const { data, error } = await sb.from('perfiles').select('*').eq('id', authUser.id).single();
+  if (error || !data) { showToast('Error: tu perfil no está configurado', 'error'); return; }
+  usuario = { email: data.email, rol: data.rol, sucursal: data.sucursal, nombre: data.nombre };
+}
+
+async function cerrarSesion() {
+  await sb.auth.signOut();
+  usuario = null;
+  window.location.reload();
+}
+
+async function mostrarApp() {
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('main-app').style.display = 'block';
+  document.getElementById('user-info').textContent = `${usuario.nombre} (${usuario.rol === 'admin' ? 'Admin' : usuario.sucursal})`;
+  poblarSucursales();
+  await loadAll();
+  // Si es encargada, fijar su sucursal
+  if (usuario.rol === 'encargada' && usuario.sucursal) {
+    document.getElementById('enc-sucursal').value = usuario.sucursal;
+    document.getElementById('enc-sucursal').disabled = true;
+    document.getElementById('emp-filtro-sucursal').value = usuario.sucursal;
+    document.getElementById('emp-filtro-sucursal').disabled = true;
+  }
+  renderEncargada();
+  const totalEmp = empleados.filter(e => e.activo).length;
+  const subText = usuario.rol === 'admin' ? `${totalEmp} empleados activos · ${SUCURSALES.length} sucursales` : `Sucursal ${usuario.sucursal} · ${totalEmp} empleados`;
+  document.getElementById('header-sub').textContent = subText;
+}
+
+// FIX: paginar para evitar el límite de 1000 filas de Supabase
+async function fetchAllRows(tabla, orden) {
+  const PAGE_SIZE = 1000;
+  let todos = [];
+  let pagina = 0;
+  while (true) {
+    let q = sb.from(tabla).select('*').range(pagina * PAGE_SIZE, (pagina + 1) * PAGE_SIZE - 1);
+    if (orden) q = q.order(orden);
+    const { data, error } = await q;
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    todos = todos.concat(data);
+    if (data.length < PAGE_SIZE) break;
+    pagina++;
+    if (pagina > 50) break; // tope de seguridad: 50,000 registros
+  }
+  return todos;
+}
+
+async function loadAll() {
+  try {
+    const [emps, regs, exs, evs] = await Promise.all([
+      fetchAllRows('empleados', 'id'),
+      fetchAllRows('registros'),
+      fetchAllRows('excepciones'),
+      fetchAllRows('eventos')
+    ]);
+    empleados = emps.map(dbToEmp);
+    registros = regs.map(r => ({empleadoId: r.empleado_id, fecha: r.fecha, tipo: r.tipo, hora: r.hora, timestamp: r.timestamp}));
+    excepciones = exs.map(x => ({empleadoId: x.empleado_id, fecha: x.fecha, tipo: x.tipo}));
+    eventos = evs.map(e => ({id: e.id, empleadoId: e.empleado_id, fecha: e.fecha, tipo: e.tipo, monto: parseFloat(e.monto), descripcion: e.descripcion}));
+    console.log('loadAll cargó:', {empleados: empleados.length, registros: registros.length, excepciones: excepciones.length, eventos: eventos.length});
+  } catch (e) {
+    console.error('Error cargando:', e);
+    showToast('Error de conexión: ' + (e.message || 'desconocido'), 'error');
+  }
+}
+
+// ============================================================
+// MODO CHECADOR (sin login)
+// ============================================================
+async function iniciarChecador() {
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('main-app').style.display = 'none';
+  document.getElementById('checador-app').style.display = 'block';
+  document.getElementById('checador-suc').textContent = sucursalChecador;
+  setInterval(actualizarFechaChecador, 1000);
+  actualizarFechaChecador();
+  await cargarEmpleadosChecador();
+  setInterval(cargarEmpleadosChecador, 30000); // refrescar cada 30s
+}
+
+function actualizarFechaChecador() {
+  const ahora = new Date();
+  const opciones = { weekday:'long', day:'numeric', month:'long' };
+  const fecha = ahora.toLocaleDateString('es-MX', opciones);
+  const hora = ahora.toLocaleTimeString('es-MX', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+  document.getElementById('checador-fecha').innerHTML = `${fecha}<br><b style="font-size:1.5rem;">${hora}</b>`;
+}
+
+async function cargarEmpleadosChecador() {
+  // Llamamos a la función especial empleados_checador que es pública
+  const { data, error } = await sb.rpc('empleados_checador', { suc: sucursalChecador });
+  if (error) { console.error(error); return; }
+  empleados = (data || []).map(dbToEmp);
+  // Cargar registros de hoy
+  const fecha = hoy();
+  const { data: regs } = await sb.from('registros').select('*').eq('fecha', fecha);
+  registros = (regs || []).map(r => ({empleadoId: r.empleado_id, fecha: r.fecha, tipo: r.tipo, hora: r.hora}));
+  renderChecadorEmpleados();
+}
+
+function renderChecadorEmpleados() {
+  const grid = document.getElementById('empleados-checador');
+  if (!empleados.length) { grid.innerHTML = '<p style="grid-column:1/-1; text-align:center; color:#999;">No hay empleados</p>'; return; }
+  const fecha = hoy();
+  grid.innerHTML = empleados.map(e => {
+    const regsHoy = registros.filter(r => r.empleadoId === e.id && r.fecha === fecha);
+    const tieneEntrada = regsHoy.some(r => r.tipo === 'entrada');
+    const tieneSalida = regsHoy.some(r => r.tipo === 'salida');
+    const dentro = tieneEntrada && !tieneSalida;
+    const iniciales = e.nombre.split(' ').slice(0,2).map(p => p[0]).join('');
+    const horario = obtenerHorarioDia(e, fecha);
+    let infoHorario = '';
+    // FIX: si hay horario especial para ese día, mostrarlo (aplica a semanal y quincenal)
+    if (e.horariosEspeciales && e.horariosEspeciales[diaSemana(fecha)]) infoHorario = `Hoy ${horario.entrada}-${horario.salida}`;
+    else if (e.tipo === 'semanal') infoHorario = e.turno === 'vespertino' ? 'Vespertino 12-20' : 'Matutino 9-17';
+    let estadoTxt, estadoClass;
+    if (dentro) { estadoTxt = '🟢 Dentro'; estadoClass = 'dentro'; }
+    else if (tieneSalida) { estadoTxt = '✓ Salió'; estadoClass = 'fin'; }
+    else { estadoTxt = '⚪ Fuera'; estadoClass = 'fuera'; }
+    return `<div class="empleado-card" onclick="abrirNip(${e.id})">
+      <div class="avatar">${iniciales}</div>
+      <div class="nombre">${e.nombre}</div>
+      ${infoHorario ? `<div class="horario-info">${infoHorario}</div>` : ''}
+      <div class="estado ${estadoClass}">${estadoTxt}</div>
+    </div>`;
+  }).join('');
+}
+
+function hoy() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth()+1).padStart(2,'0');
+  const dd = String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${dd}`;
+}
+function ahora() {
+  const d = new Date();
+  return String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+}
+function diaSemana(fechaStr) { const d = new Date(fechaStr + 'T12:00:00'); return ['dom','lun','mar','mie','jue','vie','sab'][d.getDay()]; }
+function fechaCorta(fechaStr) { const d = new Date(fechaStr + 'T12:00:00'); return d.getDate() + '/' + (d.getMonth()+1); }
+function inicioSemanaLunes(fechaStr) { const d = new Date(fechaStr + 'T12:00:00'); const dia = d.getDay(); const offset = dia === 0 ? -6 : 1 - dia; d.setDate(d.getDate() + offset); return d.toISOString().split('T')[0]; }
+function finSemanaDomingo(inicioStr) { const d = new Date(inicioStr + 'T12:00:00'); d.setDate(d.getDate() + 6); return d.toISOString().split('T')[0]; }
+// FIX: nómina semanal corta de viernes a jueves (Aldo calcula los viernes)
+function inicioSemanaViernes(fechaStr) {
+  const d = new Date(fechaStr + 'T12:00:00');
+  const dia = d.getDay(); // 0=dom,1=lun,2=mar,3=mie,4=jue,5=vie,6=sab
+  // queremos el viernes <= fechaStr. Si dia >= 5 (vie,sab), retroceder (dia - 5). Si dia < 5, retroceder (dia + 2).
+  const offset = dia >= 5 ? -(dia - 5) : -(dia + 2);
+  d.setDate(d.getDate() + offset);
+  return d.toISOString().split('T')[0];
+}
+function finSemanaJueves(inicioStr) { const d = new Date(inicioStr + 'T12:00:00'); d.setDate(d.getDate() + 6); return d.toISOString().split('T')[0]; }
+function rangoQuincenal(fechaStr) {
+  const d = new Date(fechaStr + 'T12:00:00'); const dia = d.getDate(); const m = d.getMonth(), y = d.getFullYear();
+  if (dia <= 15) return { inicio: `${y}-${String(m+1).padStart(2,'0')}-01`, fin: `${y}-${String(m+1).padStart(2,'0')}-15` };
+  const ultimoDia = new Date(y, m+1, 0).getDate();
+  return { inicio: `${y}-${String(m+1).padStart(2,'0')}-16`, fin: `${y}-${String(m+1).padStart(2,'0')}-${ultimoDia}` };
+}
+function fechasEnRango(ini, fin) { const out = []; let d = new Date(ini + 'T12:00:00'); const f = new Date(fin + 'T12:00:00'); while (d <= f) { out.push(d.toISOString().split('T')[0]); d.setDate(d.getDate() + 1); } return out; }
+
+function obtenerHorarioDia(emp, fecha) {
+  const dia = diaSemana(fecha);
+  // Prioridad 1: horario especial explícito para ese día
+  if (emp.horariosEspeciales && emp.horariosEspeciales[dia]) return emp.horariosEspeciales[dia];
+  // Prioridad 2: domingos usan horario reducido en todas las sucursales
+  if (dia === 'dom') return HORARIO_DOMINGO;
+  // Prioridad 3: turno para semanales, estándar para quincenales
+  if (emp.tipo === 'semanal') return TURNOS[emp.turno || 'matutino'];
+  return HORARIO_ESTANDAR_QUINCENAL;
+}
+
+document.querySelectorAll('#nav-tabs button').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('#nav-tabs button').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    document.querySelectorAll('#main-app .view').forEach(v => v.style.display = 'none');
+    document.getElementById('view-' + b.dataset.view).style.display = 'block';
+    if (b.dataset.view === 'encargada') renderEncargada();
+    if (b.dataset.view === 'nomina') renderNomina();
+    if (b.dataset.view === 'empleados') renderEmpleadosTabla();
+  });
+});
+
+function poblarSucursales() {
+  const opts = SUCURSALES.map(s => `<option value="${s}">${s}</option>`).join('');
+  ['enc-sucursal','emp-filtro-sucursal','emp-sucursal'].forEach(id => {
+    const el = document.getElementById(id);
+    if (id === 'emp-filtro-sucursal') el.innerHTML = '<option value="">Todas</option>' + opts;
+    else el.innerHTML = opts;
+  });
+}
+
+function abrirNip(empId) {
+  currentEmpleadoId = empId; currentNip = '';
+  const emp = empleados.find(e => e.id === empId);
+  document.getElementById('modal-empleado-nombre').textContent = emp.nombre;
+  const fecha = hoy();
+  const regsHoy = registros.filter(r => r.empleadoId === empId && r.fecha === fecha);
+  const tieneEntrada = regsHoy.some(r => r.tipo === 'entrada');
+  const tieneSalida = regsHoy.some(r => r.tipo === 'salida');
+  let accion = 'Marca tu entrada';
+  if (tieneEntrada && !tieneSalida) accion = 'Marca tu salida';
+  if (tieneSalida) accion = 'Ya registraste salida hoy';
+  const horario = obtenerHorarioDia(emp, fecha);
+  if (emp.descanso !== diaSemana(fecha)) accion += ` · Horario hoy: ${horario.entrada} - ${horario.salida}`;
+  document.getElementById('modal-accion').textContent = accion;
+  document.getElementById('nip-display').textContent = '';
+  document.getElementById('modal-nip').classList.add('show');
+}
+
+function cerrarModal() { document.getElementById('modal-nip').classList.remove('show'); currentNip = ''; }
+function nipPress(d) { if (currentNip.length < 4) { currentNip += d; document.getElementById('nip-display').textContent = '•'.repeat(currentNip.length); } }
+
+async function confirmarNip() {
+  const emp = empleados.find(e => e.id === currentEmpleadoId);
+  if (currentNip !== emp.nip) {
+    showToast('NIP incorrecto', 'error');
+    currentNip = ''; document.getElementById('nip-display').textContent = '';
+    return;
+  }
+  const fecha = hoy();
+  const regsHoy = registros.filter(r => r.empleadoId === emp.id && r.fecha === fecha);
+  const tieneEntrada = regsHoy.some(r => r.tipo === 'entrada');
+  const tieneSalida = regsHoy.some(r => r.tipo === 'salida');
+  if (tieneSalida) { showToast('Ya registraste salida hoy', 'error'); cerrarModal(); return; }
+
+  // FIX: bloqueo de doble registro accidental (5 min de gracia)
+  const ahoraTs = new Date();
+  const ultimoReg = regsHoy.length ? regsHoy[regsHoy.length - 1] : null;
+  if (ultimoReg && ultimoReg.hora) {
+    const [h, m] = ultimoReg.hora.split(':').map(Number);
+    const ultMin = h * 60 + m;
+    const nowMin = ahoraTs.getHours() * 60 + ahoraTs.getMinutes();
+    const diffMin = nowMin - ultMin;
+    if (diffMin >= 0 && diffMin < 5) {
+      showToast(`Ya marcaste ${ultimoReg.tipo} hace ${diffMin} min. Espera unos minutos.`, 'warn');
+      cerrarModal();
+      return;
+    }
+  }
+
+  const tipo = tieneEntrada ? 'salida' : 'entrada';
+
+  // FIX: confirmar salida explícitamente
+  if (tipo === 'salida') {
+    const ok = window.confirm(`${emp.nombre.split(' ')[0]}, ¿estás segura de marcar SALIDA ahora? Esto cierra tu día.`);
+    if (!ok) { cerrarModal(); return; }
+  }
+
+  const hora = ahora();
+  const { error } = await sb.from('registros').insert({ empleado_id: emp.id, fecha, tipo, hora });
+  if (error) { showToast('Error: ' + error.message, 'error'); cerrarModal(); return; }
+  registros.push({empleadoId: emp.id, fecha, tipo, hora});
+  const horario = obtenerHorarioDia(emp, fecha);
+  let aviso = null;
+  if (tipo === 'entrada') {
+    const hMin = parseInt(hora.split(':')[0])*60 + parseInt(hora.split(':')[1]);
+    const hPlan = parseInt(horario.entrada.split(':')[0])*60 + parseInt(horario.entrada.split(':')[1]);
+    if (hMin > hPlan + 15) aviso = `Entrada con ${Math.round((hMin-hPlan)/60*10)/10} hr de retraso`;
+  }
+  const saludo = tipo === 'entrada' ? `¡Buenos días ${emp.nombre.split(' ')[0]}! Entrada ${hora}` : `Hasta mañana ${emp.nombre.split(' ')[0]}! Salida ${hora}`;
+  showToast(saludo + (aviso ? ` (${aviso})` : ''), aviso ? 'warn' : 'ok');
+  cerrarModal();
+  if (modoChecador) renderChecadorEmpleados();
+}
+
+function showToast(msg, tipo='ok') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (tipo === 'error' ? ' error' : (tipo === 'warn' ? ' warn' : ''));
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+function renderEncargada() {
+  const fechaInp = document.getElementById('enc-fecha');
+  if (!fechaInp.value) fechaInp.value = hoy();
+  const suc = document.getElementById('enc-sucursal').value;
+  const fechaRef = fechaInp.value;
+  const ini = inicioSemanaLunes(fechaRef);
+  const fin = finSemanaDomingo(ini);
+  const fechas = fechasEnRango(ini, fin);
+  const empleadosSuc = empleados.filter(e => e.sucursal === suc && e.activo);
+  const cal = document.getElementById('calendario-semana');
+  let html = '<div class="cal-cell head">Empleado</div>';
+  fechas.forEach(f => { html += `<div class="cal-cell head">${diaSemana(f).toUpperCase()}<br>${fechaCorta(f)}</div>`; });
+  empleadosSuc.forEach(e => {
+    html += `<div class="cal-cell empleado">${e.nombre}</div>`;
+    fechas.forEach(f => {
+      const estado = obtenerEstadoDia(e.id, f);
+      const cls = estado === '•' ? 'asistencia' : (estado === 'D' ? 'descanso' : (estado === 'F' ? 'falta' : (estado === 'V' ? 'vacaciones' : (estado === 'INC' ? 'incapacidad' : ''))));
+      html += `<div class="cal-cell"><select class="${cls}" onchange="cambiarExcepcion(${e.id}, '${f}', this.value)">
+        <option value="auto" ${estado === '•' ? 'selected' : ''}>•</option>
+        <option value="D" ${estado === 'D' ? 'selected' : ''}>D</option>
+        <option value="F" ${estado === 'F' ? 'selected' : ''}>F</option>
+        <option value="FJ" ${estado === 'FJ' ? 'selected' : ''}>FJ</option>
+        <option value="FE" ${estado === 'FE' ? 'selected' : ''}>FE</option>
+        <option value="I" ${estado === 'I' ? 'selected' : ''}>I</option>
+        <option value="V" ${estado === 'V' ? 'selected' : ''}>V</option>
+        <option value="INC" ${estado === 'INC' ? 'selected' : ''}>INC</option>
+      </select></div>`;
+    });
+  });
+  cal.innerHTML = html;
+  document.getElementById('evento-empleado').innerHTML = empleadosSuc.map(e => `<option value="${e.id}">${e.nombre}</option>`).join('');
+  renderEventos(suc);
+}
+
+function obtenerEstadoDia(empId, fecha) {
+  const exc = excepciones.find(x => x.empleadoId === empId && x.fecha === fecha);
+  if (exc) return exc.tipo;
+  const emp = empleados.find(e => e.id === empId);
+  const reg = registros.find(r => r.empleadoId === empId && r.fecha === fecha && r.tipo === 'entrada');
+  // FIX: si es día de descanso normal PERO marcó entrada, cuenta como asistencia (descanso trabajado)
+  if (reg) return '•';
+  if (emp && diaSemana(fecha) === emp.descanso) return 'D';
+  if (fecha > hoy()) return '';
+  if (fecha === hoy()) return '';
+  return 'F';
+}
+
+async function cambiarExcepcion(empId, fecha, tipo) {
+  await sb.from('excepciones').delete().eq('empleado_id', empId).eq('fecha', fecha);
+  excepciones = excepciones.filter(x => !(x.empleadoId === empId && x.fecha === fecha));
+  if (tipo !== 'auto') {
+    const { error } = await sb.from('excepciones').insert({ empleado_id: empId, fecha, tipo });
+    if (error) { showToast('Error: ' + error.message, 'error'); return; }
+    excepciones.push({empleadoId: empId, fecha, tipo});
+  }
+  renderEncargada();
+}
+
+document.getElementById('enc-sucursal').addEventListener('change', renderEncargada);
+document.getElementById('enc-fecha').addEventListener('change', renderEncargada);
+
+function toggleFechaEvento() {
+  const tipo = document.getElementById('evento-tipo').value;
+  const fechaInp = document.getElementById('evento-fecha-aplica');
+  if (tipo === 'hora_extra') { fechaInp.style.display = ''; if (!fechaInp.value) fechaInp.value = hoy(); }
+  else { fechaInp.style.display = 'none'; fechaInp.value = ''; }
+}
+
+async function agregarEvento() {
+  const empId = parseInt(document.getElementById('evento-empleado').value);
+  const tipo = document.getElementById('evento-tipo').value;
+  const monto = parseFloat(document.getElementById('evento-monto').value);
+  const desc = document.getElementById('evento-desc').value;
+  if (!monto) { showToast('Ingresa un monto', 'error'); return; }
+  // FIX: si es hora_extra y hay fecha-aplica, usar esa; si no, hoy()
+  const fechaAplica = document.getElementById('evento-fecha-aplica').value;
+  const fechaUsar = (tipo === 'hora_extra' && fechaAplica) ? fechaAplica : hoy();
+  const { data, error } = await sb.from('eventos').insert({ empleado_id: empId, fecha: fechaUsar, tipo, monto, descripcion: desc }).select().single();
+  if (error) { showToast('Error: ' + error.message, 'error'); return; }
+  eventos.push({id: data.id, empleadoId: empId, fecha: fechaUsar, tipo, monto, descripcion: desc});
+  document.getElementById('evento-monto').value = '';
+  document.getElementById('evento-desc').value = '';
+  document.getElementById('evento-fecha-aplica').value = '';
+  showToast('Evento agregado');
+  renderEventos(document.getElementById('enc-sucursal').value);
+}
+
+function renderEventos(suc) {
+  const empleadosSuc = empleados.filter(e => e.sucursal === suc).map(e => e.id);
+  const lista = eventos.filter(ev => empleadosSuc.includes(ev.empleadoId)).slice(-10).reverse();
+  const cont = document.getElementById('eventos-lista');
+  if (!lista.length) { cont.innerHTML = '<p style="color:#999;">Sin eventos</p>'; return; }
+  cont.innerHTML = '<table><thead><tr><th>Fecha</th><th>Empleado</th><th>Tipo</th><th>Monto</th><th>Desc.</th><th></th></tr></thead><tbody>' +
+    lista.map(ev => {
+      const emp = empleados.find(e => e.id === ev.empleadoId);
+      return `<tr><td>${ev.fecha}</td><td>${emp ? emp.nombre : '?'}</td><td>${ev.tipo}</td><td class="num">$${ev.monto.toFixed(2)}</td><td>${ev.descripcion || ''}</td><td><button class="btn secondary" style="padding:4px 8px; font-size:0.75rem;" onclick="eliminarEvento(${ev.id})">✕</button></td></tr>`;
+    }).join('') + '</tbody></table>';
+}
+
+async function eliminarEvento(id) {
+  await sb.from('eventos').delete().eq('id', id);
+  eventos = eventos.filter(e => e.id !== id);
+  renderEventos(document.getElementById('enc-sucursal').value);
+}
+
+function calcularNominaEmpleado(emp, fechaIni, fechaFin) {
+  const fechas = fechasEnRango(fechaIni, fechaFin);
+  let asistencias = 0, faltas = 0, descansos = 0, festivos = 0, horasExtra = 0, descansosTrabajados = 0, incapacidades = 0;
+  const desgloseHE = []; // [{fecha, horas, origen: 'auto'|'manual'}]
+  // FIX: días con horas extra MANUALES (por fecha) — no calcular auto para esos días
+  const eventosEmp = eventos.filter(ev => ev.empleadoId === emp.id && ev.fecha >= fechaIni && ev.fecha <= fechaFin);
+  const diasConHEManual = new Set(eventosEmp.filter(ev => ev.tipo === 'hora_extra').map(ev => ev.fecha));
+  fechas.forEach(f => {
+    // FIX: días futuros se procesan solo si tienen excepción manual (F, FJ, FE, I, D)
+    if (f > hoy()) {
+      const tieneExc = excepciones.find(x => x.empleadoId === emp.id && x.fecha === f);
+      if (!tieneExc) return;
+    }
+    const estado = obtenerEstadoDia(emp.id, f);
+    // FIX: día que normalmente sería descanso (por emp.descanso) pero se marcó asistencia → pago extra
+    const seriaDescansoNormal = diaSemana(f) === emp.descanso;
+    if (estado === '•' && seriaDescansoNormal) descansosTrabajados++;
+    if (estado === '•') {
+      asistencias++;
+      // FIX: los domingos NO cuentan horas extra automáticas
+      if (emp.tipo === 'semanal' && !diasConHEManual.has(f) && diaSemana(f) !== 'dom') {
+        const horario = obtenerHorarioDia(emp, f);
+        // FIX: HE también por entrada temprana (si el empleado entra antes de su horario)
+        const entrada = registros.find(r => r.empleadoId === emp.id && r.fecha === f && r.tipo === 'entrada');
+        if (entrada) {
+          const [hEnt, mEnt] = entrada.hora.split(':').map(Number);
+          const [hIni, mIni] = horario.entrada.split(':').map(Number);
+          const minutosEntrada = hEnt*60 + mEnt;
+          const minutosIni = hIni*60 + mIni;
+          if (minutosEntrada < minutosIni) {
+            const hAutoEnt = Math.floor((minutosIni - minutosEntrada) / 60);
+            if (hAutoEnt > 0) {
+              horasExtra += hAutoEnt;
+              desgloseHE.push({fecha: f, horas: hAutoEnt, origen: 'auto-ent'});
+            }
+          }
+        }
+        // HE por salida tarde (lógica original)
+        const salida = registros.find(r => r.empleadoId === emp.id && r.fecha === f && r.tipo === 'salida');
+        if (salida) {
+          const [hSal, mSal] = salida.hora.split(':').map(Number);
+          const [hFin, mFin] = horario.salida.split(':').map(Number);
+          const minutosSalida = hSal*60 + mSal;
+          const minutosFin = hFin*60 + mFin;
+          if (minutosSalida > minutosFin) {
+            const hAuto = Math.floor((minutosSalida - minutosFin) / 60);
+            if (hAuto > 0) {
+              horasExtra += hAuto;
+              desgloseHE.push({fecha: f, horas: hAuto, origen: 'auto-sal'});
+            }
+          }
+        }
+      }
+    }
+    else if (estado === 'D') descansos++;
+    else if (estado === 'F') faltas++;
+    else if (estado === 'FJ') asistencias++;
+    else if (estado === 'FE') { asistencias++; festivos++; }
+    else if (estado === 'I') asistencias++;
+    // FIX: V (vacaciones) se paga como día normal → cuenta como asistencia
+    else if (estado === 'V') asistencias++;
+    // FIX: INC (incapacidad) NO se paga pero tampoco es falta → se descuenta como día no trabajado
+    else if (estado === 'INC') incapacidades++;
+  });
+  let sueldoDiario, sueldoBruto, descuentoFaltas, descuentoIncapacidad;
+  if (emp.tipo === 'semanal') {
+    sueldoDiario = emp.sueldo / 7; sueldoBruto = emp.sueldo; descuentoFaltas = sueldoDiario * faltas;
+  } else {
+    // FIX: día promedio mensual = 30.4166 días / 2 quincenas = 15.2083 días por quincena
+    const DIAS_QUINCENA_PROMEDIO = 15.2083;
+    sueldoDiario = emp.sueldo / DIAS_QUINCENA_PROMEDIO; sueldoBruto = emp.sueldo; descuentoFaltas = sueldoDiario * faltas;
+  }
+  // FIX: descontar días de incapacidad del sueldo (el IMSS los cubre, empresa no paga)
+  descuentoIncapacidad = sueldoDiario * incapacidades;
+  let descuentosManuales = 0, bonos = 0, horasExtraManuales = 0;
+  eventosEmp.forEach(ev => {
+    if (ev.tipo === 'descuento' || ev.tipo === 'prestamo' || ev.tipo === 'vale') descuentosManuales += ev.monto;
+    if (ev.tipo === 'bono') bonos += ev.monto;
+    if (ev.tipo === 'hora_extra') {
+      horasExtraManuales += ev.monto;
+      desgloseHE.push({fecha: ev.fecha, horas: ev.monto, origen: 'manual'});
+    }
+  });
+  // FIX: sumar horas extra manuales (el monto del evento ES el número de horas)
+  horasExtra += horasExtraManuales;
+  const pagoExtra = horasExtra * TARIFA_HORA_EXTRA;
+  let descuentoFijo = 0, conceptoFijo = '';
+  if (emp.tipo === 'quincenal' && emp.descuentoFijo && emp.descuentoFijo.monto) {
+    descuentoFijo = parseFloat(emp.descuentoFijo.monto); conceptoFijo = emp.descuentoFijo.concepto || 'Desc. fijo';
+  }
+  // FIX: pago por descansos trabajados (1 día normal por cada descanso trabajado)
+  const pagoDescansoTrabajado = descansosTrabajados * sueldoDiario;
+  const descuentosTotal = descuentoFaltas + descuentoIncapacidad + descuentosManuales + descuentoFijo;
+  const neto = sueldoBruto + pagoExtra + pagoDescansoTrabajado + bonos - descuentosTotal;
+  const banco = Math.min(emp.banco || 0, neto);
+  const cheque = Math.min(emp.cheque || 0, Math.max(0, neto - banco));
+  const efvo = Math.max(0, neto - banco - cheque);
+  return { empleado: emp, asistencias, faltas, descansos, descansosTrabajados, pagoDescansoTrabajado, horasExtra, desgloseHE, incapacidades, descuentoIncapacidad, sueldoBruto, sueldoDiario, pagoExtra, bonos, descuentoFaltas, descuentosManuales, descuentoFijo, conceptoFijo, descuentosTotal, neto, banco, cheque, efvo };
+}
+
+function renderNomina() {
+  const tipo = document.getElementById('nom-tipo').value;
+  const fechaInp = document.getElementById('nom-fecha-ref');
+  if (!fechaInp.value) fechaInp.value = hoy();
+  const fechaRef = fechaInp.value;
+  let fechaIni, fechaFin, titulo;
+  if (tipo === 'semanal') { fechaIni = inicioSemanaViernes(fechaRef); fechaFin = finSemanaJueves(fechaIni); titulo = `Semana ${fechaIni} (vie) al ${fechaFin} (jue)`; }
+  else { const r = rangoQuincenal(fechaRef); fechaIni = r.inicio; fechaFin = r.fin; titulo = `Quincena ${fechaIni} al ${fechaFin}`; }
+  const empleadosTipo = empleados.filter(e => e.activo && e.tipo === tipo);
+  const porSucursal = {};
+  SUCURSALES.forEach(s => { porSucursal[s] = []; });
+  empleadosTipo.forEach(emp => { porSucursal[emp.sucursal].push(calcularNominaEmpleado(emp, fechaIni, fechaFin)); });
+  let totalBanco = 0, totalEfvo = 0, totalCheque = 0, totalNeto = 0;
+  let html = `<h3>${titulo}</h3>`;
+  SUCURSALES.forEach(suc => {
+    const lista = porSucursal[suc];
+    if (!lista.length) return;
+    html += `<div class="sucursal-header">${suc} (${lista.length})</div>`;
+    html += '<div class="tabla-wrap"><table><thead><tr><th>Empleado</th><th>Asist.</th><th>Faltas</th><th>H.Ext</th><th class="num">Desc.Trab</th><th class="num">Sueldo</th><th class="num">Extra</th><th class="num">Bono</th><th class="num">Desc.</th><th class="num">Neto</th><th class="num">Banco</th><th class="num">Cheque</th><th class="num">Efvo.</th></tr></thead><tbody>';
+    let subBanco = 0, subEfvo = 0, subCheque = 0, subNeto = 0;
+    lista.forEach(c => {
+      let badges = '';
+      if (c.descuentoFijo > 0) badges += `<span class="badge infonavit">${c.conceptoFijo}</span>`;
+      if (c.faltas > 0) badges += `<span class="badge falta">${c.faltas}F</span>`;
+      // Desglose horas extra: "3h (08/05) + 6h (10/05) = 9h"
+      let heDisplay = `${c.horasExtra}h`;
+      if (c.desgloseHE && c.desgloseHE.length > 0) {
+        const porDia = {};
+        c.desgloseHE.forEach(d => { porDia[d.fecha] = (porDia[d.fecha] || 0) + d.horas; });
+        const fechasOrdenadas = Object.keys(porDia).sort();
+        const partes = fechasOrdenadas.map(f => `${porDia[f]}h (${fechaCorta(f)})`);
+        if (partes.length === 1) heDisplay = partes[0];
+        else heDisplay = `<span style="font-size:0.75rem; line-height:1.3;">${partes.join(' + ')}<br><b>= ${c.horasExtra}h</b></span>`;
+      }
+      // Celda descansos trabajados: "1 ($800)" o vacío si no hay
+      const dtDisplay = c.descansosTrabajados > 0
+        ? `${c.descansosTrabajados} ($${c.pagoDescansoTrabajado.toFixed(2)})`
+        : '—';
+      html += `<tr><td>${c.empleado.nombre}${badges}</td><td>${c.asistencias}</td><td>${c.faltas}</td><td>${heDisplay}</td><td class="num">${dtDisplay}</td>
+        <td class="num">$${c.sueldoBruto.toFixed(2)}</td><td class="num">$${c.pagoExtra.toFixed(2)}</td><td class="num">$${c.bonos.toFixed(2)}</td>
+        <td class="num">-$${c.descuentosTotal.toFixed(2)}</td><td class="num"><b>$${c.neto.toFixed(2)}</b></td>
+        <td class="num">$${c.banco.toFixed(2)}</td><td class="num">$${c.cheque.toFixed(2)}</td><td class="num">$${c.efvo.toFixed(2)}</td></tr>`;
+      subBanco += c.banco; subEfvo += c.efvo; subCheque += c.cheque; subNeto += c.neto;
+    });
+    html += `<tr style="background:#faf3ef; font-weight:bold;"><td colspan="9">Subtotal</td><td class="num">$${subNeto.toFixed(2)}</td><td class="num">$${subBanco.toFixed(2)}</td><td class="num">$${subCheque.toFixed(2)}</td><td class="num">$${subEfvo.toFixed(2)}</td></tr>`;
+    html += '</tbody></table></div>';
+    totalBanco += subBanco; totalEfvo += subEfvo; totalCheque += subCheque; totalNeto += subNeto;
+  });
+  html += `<div class="totales">
+    <div class="row"><span>Transferencia (banco)</span><b>$${totalBanco.toFixed(2)}</b></div>
+    <div class="row"><span>Cheque</span><b>$${totalCheque.toFixed(2)}</b></div>
+    <div class="row"><span>Efectivo</span><b>$${totalEfvo.toFixed(2)}</b></div>
+    <div class="row total"><span>TOTAL A PAGAR</span><span>$${totalNeto.toFixed(2)}</span></div>
+  </div>`;
+  html += `<div style="margin-top:16px;"><button class="btn" onclick="exportarCSV()">📥 Exportar a CSV</button></div>`;
+  document.getElementById('nomina-contenido').innerHTML = html;
+}
+
+function exportarCSV() {
+  const tipo = document.getElementById('nom-tipo').value;
+  const fechaRef = document.getElementById('nom-fecha-ref').value;
+  let fechaIni, fechaFin;
+  if (tipo === 'semanal') { fechaIni = inicioSemanaViernes(fechaRef); fechaFin = finSemanaJueves(fechaIni); }
+  else { const r = rangoQuincenal(fechaRef); fechaIni = r.inicio; fechaFin = r.fin; }
+  const lista = empleados.filter(e => e.activo && e.tipo === tipo);
+  let csv = 'Sucursal,Empleado,Asist,Faltas,Inc,HE,DescTrab,PagoDescTrab,Sueldo,Extra,Bonos,DescFaltas,DescInc,DescTotal,Neto,Banco,Cheque,Efvo\n';
+  lista.forEach(emp => {
+    const c = calcularNominaEmpleado(emp, fechaIni, fechaFin);
+    csv += `"${emp.sucursal}","${emp.nombre}",${c.asistencias},${c.faltas},${c.incapacidades},${c.horasExtra},${c.descansosTrabajados},${c.pagoDescansoTrabajado.toFixed(2)},${c.sueldoBruto.toFixed(2)},${c.pagoExtra.toFixed(2)},${c.bonos.toFixed(2)},${c.descuentoFaltas.toFixed(2)},${c.descuentoIncapacidad.toFixed(2)},${c.descuentosTotal.toFixed(2)},${c.neto.toFixed(2)},${c.banco.toFixed(2)},${c.cheque.toFixed(2)},${c.efvo.toFixed(2)}\n`;
+  });
+  const blob = new Blob([csv], {type:'text/csv'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `nomina_${tipo}_${fechaIni}.csv`; a.click();
+}
+
+function renderEmpleadosTabla() {
+  const filtroSuc = document.getElementById('emp-filtro-sucursal').value;
+  const filtroTipo = document.getElementById('emp-filtro-tipo').value;
+  let lista = empleados.slice();
+  if (filtroSuc) lista = lista.filter(e => e.sucursal === filtroSuc);
+  if (filtroTipo) lista = lista.filter(e => e.tipo === filtroTipo);
+  const tbody = document.querySelector('#tabla-empleados tbody');
+  tbody.innerHTML = lista.map(e => {
+    let horarioInfo = '';
+    if (e.tipo === 'semanal') horarioInfo = e.turno === 'vespertino' ? '12-20' : '9-17';
+    else { const dias = Object.keys(e.horariosEspeciales || {}); horarioInfo = dias.length ? `${dias.length} esp.` : 'Estándar'; }
+    let descFijoTxt = '';
+    if (e.descuentoFijo && e.descuentoFijo.monto) descFijoTxt = `<span class="badge infonavit">${e.descuentoFijo.concepto}</span> $${parseFloat(e.descuentoFijo.monto).toFixed(2)}`;
+    return `<tr style="${!e.activo ? 'opacity:0.5;' : ''}">
+      <td>${e.nombre}</td><td>${e.sucursal}</td><td>${e.tipo}</td><td>${horarioInfo}</td>
+      <td class="num">$${e.sueldo.toFixed(2)}</td><td>${e.nip}</td>
+      <td class="num">$${(e.banco||0).toFixed(2)}</td><td class="num">$${(e.cheque||0).toFixed(2)}</td>
+      <td>${descFijoTxt}</td>
+      <td><button class="btn secondary" style="padding:4px 10px; font-size:0.8rem;" onclick="editarEmpleado(${e.id})">Editar</button></td>
+    </tr>`;
+  }).join('');
+}
+
+document.getElementById('emp-filtro-sucursal').addEventListener('change', renderEmpleadosTabla);
+document.getElementById('emp-filtro-tipo').addEventListener('change', renderEmpleadosTabla);
+
+function renderHorariosForm(horariosEspeciales = {}) {
+  document.getElementById('horarios-body').innerHTML = DIAS.map(d => {
+    const h = horariosEspeciales[d] || {};
+    return `<tr><td>${DIAS_NOMBRE[d]}</td><td><input type="time" id="hor-${d}-ent" value="${h.entrada || ''}"></td><td><input type="time" id="hor-${d}-sal" value="${h.salida || ''}"></td></tr>`;
+  }).join('');
+}
+
+function toggleHorarios() {
+  const tipo = document.getElementById('emp-tipo').value;
+  // Turno solo aplica a semanal (matutino/vespertino), pero los horarios especiales por día están disponibles para ambos
+  document.getElementById('campo-turno').style.display = tipo === 'semanal' ? 'block' : 'none';
+  document.getElementById('seccion-horarios').style.display = 'block';
+}
+
+function abrirNuevoEmpleado() {
+  empEditandoId = null;
+  document.getElementById('modal-emp-titulo').textContent = 'Nuevo empleado';
+  ['emp-nombre','emp-sueldo','emp-nip','emp-banco','emp-cheque','emp-desc-fijo-concepto','emp-desc-fijo-monto'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('emp-tipo').value = 'quincenal';
+  document.getElementById('emp-turno').value = 'matutino';
+  document.getElementById('emp-descanso').value = 'dom';
+  document.getElementById('emp-activo').value = 'true';
+  document.getElementById('emp-forma-pago').value = 'banco';
+  // Si encargada, fijar su sucursal
+  if (usuario.rol === 'encargada') { document.getElementById('emp-sucursal').value = usuario.sucursal; document.getElementById('emp-sucursal').disabled = true; }
+  renderHorariosForm({}); toggleHorarios();
+  document.getElementById('modal-empleado').classList.add('show');
+}
+
+function editarEmpleado(id) {
+  const e = empleados.find(x => x.id === id);
+  empEditandoId = id;
+  document.getElementById('modal-emp-titulo').textContent = 'Editar empleado';
+  document.getElementById('emp-nombre').value = e.nombre;
+  document.getElementById('emp-sucursal').value = e.sucursal;
+  document.getElementById('emp-puesto').value = e.puesto;
+  document.getElementById('emp-tipo').value = e.tipo;
+  document.getElementById('emp-turno').value = e.turno || 'matutino';
+  document.getElementById('emp-sueldo').value = e.sueldo;
+  document.getElementById('emp-nip').value = e.nip;
+  document.getElementById('emp-forma-pago').value = e.formaPago || 'banco';
+  document.getElementById('emp-banco').value = e.banco || 0;
+  document.getElementById('emp-cheque').value = e.cheque || 0;
+  document.getElementById('emp-descanso').value = e.descanso || 'dom';
+  document.getElementById('emp-activo').value = e.activo ? 'true' : 'false';
+  document.getElementById('emp-desc-fijo-concepto').value = e.descuentoFijo ? e.descuentoFijo.concepto : '';
+  document.getElementById('emp-desc-fijo-monto').value = e.descuentoFijo ? e.descuentoFijo.monto : '';
+  if (usuario.rol === 'encargada') document.getElementById('emp-sucursal').disabled = true;
+  renderHorariosForm(e.horariosEspeciales || {}); toggleHorarios();
+  document.getElementById('modal-empleado').classList.add('show');
+}
+
+function cerrarModalEmpleado() { document.getElementById('modal-empleado').classList.remove('show'); }
+
+async function guardarEmpleado() {
+  const tipo = document.getElementById('emp-tipo').value;
+  const data = {
+    nombre: document.getElementById('emp-nombre').value.trim(),
+    sucursal: document.getElementById('emp-sucursal').value,
+    puesto: document.getElementById('emp-puesto').value,
+    tipo,
+    sueldo: parseFloat(document.getElementById('emp-sueldo').value) || 0,
+    nip: document.getElementById('emp-nip').value.trim(),
+    forma_pago: document.getElementById('emp-forma-pago').value,
+    banco: parseFloat(document.getElementById('emp-banco').value) || 0,
+    cheque: parseFloat(document.getElementById('emp-cheque').value) || 0,
+    descanso: document.getElementById('emp-descanso').value,
+    activo: document.getElementById('emp-activo').value === 'true',
+    turno: tipo === 'semanal' ? document.getElementById('emp-turno').value : null,
+    horarios_especiales: {},
+    descuento_fijo: null
+  };
+  const concepto = document.getElementById('emp-desc-fijo-concepto').value.trim();
+  const monto = parseFloat(document.getElementById('emp-desc-fijo-monto').value) || 0;
+  if (concepto && monto > 0) data.descuento_fijo = { concepto, monto };
+  // FIX: leer horarios especiales para AMBOS tipos (semanal y quincenal)
+  DIAS.forEach(d => {
+    const ent = document.getElementById(`hor-${d}-ent`).value;
+    const sal = document.getElementById(`hor-${d}-sal`).value;
+    if (ent && sal) data.horarios_especiales[d] = { entrada: ent, salida: sal };
+  });
+  if (!data.nombre || !data.nip) { showToast('Falta nombre o NIP', 'error'); return; }
+  if (data.nip.length !== 4) { showToast('NIP debe ser 4 dígitos', 'error'); return; }
+  let res;
+  if (empEditandoId) res = await sb.from('empleados').update(data).eq('id', empEditandoId).select().single();
+  else res = await sb.from('empleados').insert(data).select().single();
+  if (res.error) { showToast('Error: ' + res.error.message, 'error'); return; }
+  const { data: emps } = await sb.from('empleados').select('*').order('id');
+  empleados = emps.map(dbToEmp);
+  cerrarModalEmpleado(); renderEmpleadosTabla();
+  showToast('Empleado guardado');
+}
+
+// Iniciar
+init();
+</script>
+</body>
+</html>
