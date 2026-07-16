@@ -718,9 +718,25 @@ function calcularNominaEmpleado(emp, fechaIni, fechaFin) {
       asistencias++;
       // FIX: los domingos NO cuentan horas extra automáticas
       if (emp.tipo === 'semanal' && !diasConHEManual.has(f) && diaSemana(f) !== 'dom') {
+        const horario = obtenerHorarioDia(emp, f);
+        // FIX: HE también por entrada temprana (si el empleado entra antes de su horario)
+        const entrada = registros.find(r => r.empleadoId === emp.id && r.fecha === f && r.tipo === 'entrada');
+        if (entrada) {
+          const [hEnt, mEnt] = entrada.hora.split(':').map(Number);
+          const [hIni, mIni] = horario.entrada.split(':').map(Number);
+          const minutosEntrada = hEnt*60 + mEnt;
+          const minutosIni = hIni*60 + mIni;
+          if (minutosEntrada < minutosIni) {
+            const hAutoEnt = Math.floor((minutosIni - minutosEntrada) / 60);
+            if (hAutoEnt > 0) {
+              horasExtra += hAutoEnt;
+              desgloseHE.push({fecha: f, horas: hAutoEnt, origen: 'auto-ent'});
+            }
+          }
+        }
+        // HE por salida tarde (lógica original)
         const salida = registros.find(r => r.empleadoId === emp.id && r.fecha === f && r.tipo === 'salida');
         if (salida) {
-          const horario = obtenerHorarioDia(emp, f);
           const [hSal, mSal] = salida.hora.split(':').map(Number);
           const [hFin, mFin] = horario.salida.split(':').map(Number);
           const minutosSalida = hSal*60 + mSal;
@@ -729,7 +745,7 @@ function calcularNominaEmpleado(emp, fechaIni, fechaFin) {
             const hAuto = Math.floor((minutosSalida - minutosFin) / 60);
             if (hAuto > 0) {
               horasExtra += hAuto;
-              desgloseHE.push({fecha: f, horas: hAuto, origen: 'auto'});
+              desgloseHE.push({fecha: f, horas: hAuto, origen: 'auto-sal'});
             }
           }
         }
